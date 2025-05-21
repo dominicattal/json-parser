@@ -27,7 +27,7 @@ typedef struct JsonObject {
 typedef struct JsonValue {
     JsonType type;
     union {
-        const JsonObject** val_members;
+        const JsonObject* val_object;
         const JsonArray* val_array;
         const char* val_string;
         const int val_int;
@@ -440,9 +440,55 @@ float json_get_float(const JsonObject* object, const char* key)
     return 0;
 }
 
-void json_object_print(JsonObject* object)
+void json_object_print(const JsonObject* object, int depth);
+
+void json_object_print_member(const JsonMember* member, int depth)
 {
-    UNUSED(object);
+    UNUSED(depth);
+    ASSERT(member != NULL);
+    ASSERT(member->key != NULL);
+    ASSERT(member->value != NULL);
+    int i;
+    const char* key = member->key;
+    JsonValue* value = member->value;
+    for (i = 0; i < depth; i++)
+        printf("  ");
+    printf("%s: ", key);
+    switch (value->type) {
+        case JTYPE_TRUE:
+            puts("true");
+            break;
+        case JTYPE_FALSE:
+            puts("false");
+            break;
+        case JTYPE_NULL:
+            puts("null");
+            break;
+        case JTYPE_STRING:
+            puts(value->val_string);
+            break;
+        case JTYPE_OBJECT:
+            json_object_print(value->val_object, depth+1);
+            break;
+        default:
+            break;
+    }
+}
+
+void json_object_print(const JsonObject* object, int depth)
+{
+    printf("{\n");
+    int i;
+    for (i = 0; i < depth; i++)
+        printf("  ");
+    ASSERT(object->members != NULL);
+    i = 0;
+    const JsonMember* member;
+    while ((member = object->members[i++]) != NULL)
+        json_object_print_member(member, depth+1);
+    for (i = 0; i < depth; i++)
+        printf("  ");
+    printf("}\n");
 }
 
 void json_object_destroy(JsonObject* object)
@@ -463,8 +509,10 @@ void test(const char* path)
             continue;
         sprintf(str, "%s/%s", path, entry->d_name);
         JsonObject* object = json_read(str);
-        if (object != NULL)
-            json_object_print(object);
+        if (object != NULL) {
+            puts("");
+            json_object_print(object, 0);
+        }
         json_object_destroy(object);
         puts("-------------------------");
     }
