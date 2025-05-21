@@ -30,8 +30,7 @@ typedef struct JsonValue {
         const JsonObject* val_object;
         const JsonArray* val_array;
         const char* val_string;
-        const int val_int;
-        const float val_float;
+        double val_num;
     };
 } JsonValue;
 
@@ -116,6 +115,21 @@ static long get_next_char_pos(FILE* file, int* line_num, char ch)
     return (c != EOF) ? ftell(file) : -2;
 }
 
+// gets substring from start_pos until end_pos, returns NULL if not valid
+static const char* get_string_in_range(FILE* file, int* line_num, long start_pos, long end_pos)
+{
+    fseek(file, start_pos, SEEK_SET);
+    int n = end_pos - start_pos;
+    char* string = malloc((n+1) * sizeof(char));
+    if (fgets(string, n+1, file) == NULL) {
+        free(string);
+        print_error(line_num, "Something went wrong reading from file");
+        return NULL;
+    }
+    string[n] = '\0';
+    return string;
+}
+
 // gets next string surrounded by quotes, returns NULL if not valid
 static const char* get_next_string(FILE* file, int* line_num)
 {
@@ -137,11 +151,10 @@ static const char* get_next_string(FILE* file, int* line_num)
         return NULL;
     }
 
-    fseek(file, start_pos, SEEK_SET);
-    int n = end_pos - start_pos;
-    char* string = malloc(n * sizeof(char));
-    fgets(string, n+1, file);
-    string[n-1] = '\0';
+    const char* string = get_string_in_range(file, line_num, start_pos, end_pos-1);
+    getch(file, line_num);
+    if (string == NULL)
+        return NULL;
     return string;
 }
 
@@ -165,11 +178,105 @@ static JsonValue* parse_value_array(FILE* file, int* line_num)
     return NULL;
 }
 
-static JsonValue* parse_value_number(FILE* file, int* line_num)
+static int accepting_state(int state)
+{
+    return state == 2
+        || state == 3
+        || state == 5
+        || state == 8;
+}
+
+static int next_state(int state, char c)
+{
+    switch (state) {
+        case 0:
+            if (c == '-') return 1;
+            if (c == '0') return 2;
+            if (isdigit(c)) return 3;
+            return -1;
+        case 1:
+            if (c == '0') return 2;
+            if (isdigit(c)) return 3;
+            return -1;
+        case 2:
+            if (c == '.') return 4;
+            if (c == 'e') return 6;
+            if (c == 'E') return 6;
+            return -1;
+        case 3:
+            if (c == '.') return 4;
+            if (c == 'e') return 6;
+            if (c == 'E') return 6;
+            if (isdigit(c)) return 3;
+            return -1;
+        case 4:
+            if (isdigit(c)) return 5;
+            return -1;
+        case 5:
+            if (c == 'e') return 6;
+            if (c == 'E') return 6;
+            if (isdigit(c)) return 5;
+            return -1;
+        case 6:
+            if (c == '+') return 7;
+            if (c == '-') return 7;
+            if (isdigit(c)) return 8;
+            return -1;
+        case 7:
+            if (isdigit(c)) return 8;
+            return -1;
+        case 8:
+            if (isdigit(c)) return 8;
+            return -1;
+        default:
+            return -1;
+    }
+    return -1;
+}
+
+static long dfa_number(FILE* file, int* line_num)
 {
     UNUSED(file);
     UNUSED(line_num);
-    return NULL;
+    int state = 0, prev_state;
+    char c;
+    while ((c = getch(file, line_num)) != EOF) {
+        prev_state = state;
+        state = next_state(state, c);
+        if (state == -1) {
+            ungetch(file, line_num, c);
+            if (accepting_state(prev_state))
+                return ftell(file);
+            return -2;
+        }
+    }
+    return -2;
+}
+
+static JsonValue* parse_value_number(FILE* file, int* line_num)
+{
+    long start_pos, end_pos;
+    start_pos = ftell(file);
+    ASSERT(start_pos != -1);
+    end_pos = dfa_number(file, line_num);
+    ASSERT(end_pos != -1);
+    if (end_pos == -2) {
+        print_error(line_num, "Error parsing value num");
+        return NULL;
+    }
+
+    const char* string = get_string_in_range(file, line_num, start_pos, end_pos);
+    if (string == NULL)
+        return NULL;
+
+    puts(string);
+    double num = atof(string);
+
+    JsonValue* value = malloc(sizeof(JsonValue));
+    value->type = JTYPE_NUMBER;
+    value->val_num = num;
+    
+    return value;
 }
 
 static JsonValue* parse_value_string(FILE* file, int* line_num)
@@ -472,6 +579,9 @@ static void json_object_print_member(const JsonMember* member, int depth)
             break;
         case JTYPE_STRING:
             printf("\"%s\"", value->val_string);
+            break;
+        case JTYPE_NUMBER:
+            printf("%f", value->val_num);
             break;
         case JTYPE_OBJECT:
             json_object_print(value->val_object, depth);
