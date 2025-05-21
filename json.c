@@ -30,7 +30,8 @@ typedef struct JsonValue {
         const JsonObject* val_object;
         const JsonArray* val_array;
         const char* val_string;
-        double val_num;
+        double val_float;
+        long long val_int;
     };
 } JsonValue;
 
@@ -178,12 +179,14 @@ static JsonValue* parse_value_array(FILE* file, int* line_num)
     return NULL;
 }
 
-static int accepting_state(int state)
+static int accepting_state_int(int state)
 {
-    return state == 2
-        || state == 3
-        || state == 5
-        || state == 8;
+    return state == 2 || state == 3;
+}
+
+static int accepting_state_float(int state)
+{
+    return state == 5 || state == 8;
 }
 
 static int next_state(int state, char c)
@@ -234,7 +237,7 @@ static int next_state(int state, char c)
     return -1;
 }
 
-static long dfa_number(FILE* file, int* line_num)
+static long dfa_number(FILE* file, int* line_num, JsonType* type)
 {
     UNUSED(file);
     UNUSED(line_num);
@@ -245,8 +248,14 @@ static long dfa_number(FILE* file, int* line_num)
         state = next_state(state, c);
         if (state == -1) {
             ungetch(file, line_num, c);
-            if (accepting_state(prev_state))
+            if (accepting_state_int(prev_state)) {
+                *type = JTYPE_INT;
                 return ftell(file);
+            }
+            if (accepting_state_float(prev_state)) {
+                *type = JTYPE_FLOAT;
+                return ftell(file);
+            }
             return -2;
         }
     }
@@ -255,10 +264,11 @@ static long dfa_number(FILE* file, int* line_num)
 
 static JsonValue* parse_value_number(FILE* file, int* line_num)
 {
+    JsonType type;
     long start_pos, end_pos;
     start_pos = ftell(file);
     ASSERT(start_pos != -1);
-    end_pos = dfa_number(file, line_num);
+    end_pos = dfa_number(file, line_num, &type);
     ASSERT(end_pos != -1);
     if (end_pos == -2) {
         print_error(line_num, "Error parsing value num");
@@ -273,8 +283,11 @@ static JsonValue* parse_value_number(FILE* file, int* line_num)
     double num = atof(string);
 
     JsonValue* value = malloc(sizeof(JsonValue));
-    value->type = JTYPE_NUMBER;
-    value->val_num = num;
+    value->type = type;
+    if (type == JTYPE_INT)
+        value->val_int = num;
+    else
+        value->val_float = num;
     
     return value;
 }
@@ -580,8 +593,11 @@ static void json_object_print_member(const JsonMember* member, int depth)
         case JTYPE_STRING:
             printf("\"%s\"", value->val_string);
             break;
-        case JTYPE_NUMBER:
-            printf("%f", value->val_num);
+        case JTYPE_INT:
+            printf("%lld", value->val_int);
+            break;
+        case JTYPE_FLOAT:
+            printf("%f", value->val_float);
             break;
         case JTYPE_OBJECT:
             json_object_print(value->val_object, depth);

@@ -5,7 +5,8 @@ typedef enum {
     JTYPE_OBJECT,
     JTYPE_ARRAY,
     JTYPE_STRING,
-    JTYPE_NUMBER,
+    JTYPE_INT,
+    JTYPE_FLOAT,
     JTYPE_TRUE,
     JTYPE_FALSE,
     JTYPE_NULL
