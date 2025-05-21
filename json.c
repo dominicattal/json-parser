@@ -61,11 +61,12 @@ static int json_member_cmp(const void* x, const void* y)
 static JsonMember** push_member(JsonMember** members, JsonMember* member, int* length)
 {   
     if (members == NULL)
-        members = malloc(sizeof(JsonMember*));
+        members = malloc(2 * sizeof(JsonMember*));
     else
-        members = realloc(members, (*length+1) * sizeof(JsonMember*));
+        members = realloc(members, (*length+2) * sizeof(JsonMember*));
     ASSERT(members != NULL);
     members[(*length)++] = member;
+    members[(*length)] = NULL;
     return members;
 }
 
@@ -114,6 +115,35 @@ static long get_next_char_pos(FILE* file, int* line_num, char ch)
     return (c != EOF) ? ftell(file) : -2;
 }
 
+// gets next string surrounded by quotes, returns NULL if not valid
+static const char* get_next_string(const char* path, FILE* file, int* line_num)
+{
+    char c;
+    long start_pos, end_pos;
+
+    c = get_next_nonspace(file, line_num);
+    if (c != '"') {
+        print_error(path, line_num, "Missing quotes");
+        return NULL;
+    }
+
+    start_pos = ftell(file);
+    ASSERT(start_pos != -1);
+    end_pos = get_next_char_pos(file, line_num, '"');
+    ASSERT(end_pos != -1);
+    if (end_pos == -2) {
+        print_error(path, line_num, "Expected closing quotes");
+        return NULL;
+    }
+
+    fseek(file, start_pos, SEEK_SET);
+    int n = end_pos - start_pos;
+    char* string = malloc(n * sizeof(char));
+    fgets(string, n+1, file);
+    string[n-1] = '\0';
+    return string;
+}
+
 static JsonValue* parse_value_object(const char* path, FILE* file, int* line_num, int* error_count)
 {
     UNUSED(path);
@@ -145,21 +175,7 @@ static JsonValue* parse_value_string(const char* path, FILE* file, int* line_num
 {
     UNUSED(error_count);
 
-    long start_pos, end_pos, n;
-    getch(file, line_num);
-    start_pos = ftell(file);
-    ASSERT(start_pos != -1);
-    end_pos = get_next_char_pos(file, line_num, '"');
-    ASSERT(end_pos != -1);
-    if (end_pos == -2) {
-        print_error(path, line_num, "Missing closing '\"' for value");
-        return NULL;
-    }
-    fseek(file, start_pos, SEEK_SET);
-    n = end_pos - start_pos;
-    char* string = malloc(n * sizeof(char));
-    fgets(string, n+1, file);
-    string[n-1] = '\0';
+    const char* string = get_next_string(path, file, line_num);
 
     JsonValue* value = malloc(sizeof(JsonValue));
     value->type = JTYPE_STRING;
@@ -220,44 +236,28 @@ static JsonMember* parse_member(const char* path, FILE* file, int* line_num, int
 {
     char c;
     
-    // get key. keys must start with a quote (")
-    // if next char is not a ", assume there are no more keys
-    // to parse and return NULL
-    if (peek_next_nonspace(file, line_num) != '"')
-        return NULL;
-
-    getch(file, line_num);
-
-    // get the key positions
-    long key_start_pos, key_end_pos;
-    key_start_pos = ftell(file);
-    ASSERT(key_start_pos != -1);
-    key_end_pos = get_next_char_pos(file, line_num, '"');
-    ASSERT(key_end_pos != -1);
-    if (key_end_pos == -2) {
-        print_error(path, line_num, "Missing closing '\"' for key");
+    const char* key = get_next_string(path, file, line_num);
+    if (key == NULL) {
+        print_error(path, line_num, "Error reading key");
         return NULL;
     }
-    fseek(file, key_start_pos, SEEK_SET);
-    int n = key_end_pos - key_start_pos;
-    char* string = malloc(n * sizeof(char));
-    fgets(string, n+1, file);
-    string[n-1] = '\0';
 
-    // get colon
     c = get_next_nonspace(file, line_num);
     if (c != ':') {
         print_error(path, line_num, "Missing colon");
         return NULL;
     }
 
-    // get the value
     JsonValue* value;
     value = parse_value(path, file, line_num, error_count);
+    if (value == NULL) {
+        print_error(path, line_num, "Error reading value");
+        return NULL;
+    }
 
     JsonMember* member = malloc(sizeof(JsonMember));
     ASSERT(member != NULL);
-    member->key = malloc((key_end_pos - key_start_pos) * sizeof(char));
+    member->key = key;
     member->value = value;
 
     UNUSED(path);
@@ -268,33 +268,48 @@ static JsonMember* parse_member(const char* path, FILE* file, int* line_num, int
 
 static JsonMember** parse_members(const char* path, FILE* file, int* line_num, int* error_count)
 {
+    char c;
     int num_members = 0;
     JsonMember** members = NULL;
     JsonMember* member;
 
-    // keep pushing key value pairs until } is found
-    // intentionally designed for null-terminated array
-    do {
-        member = parse_member(path, file, line_num, error_count);
-        members = push_member(members, member, &num_members);
-    } while (member != NULL);
-
-    // sort members by key for O(log n) lookups
-    qsort(members, num_members-1, sizeof(JsonMember*), json_member_cmp); 
-
-    if (0) {
-        json_members_destroy(members);
-        members = NULL;
+    member = parse_member(path, file, line_num, error_count);
+    if (member == NULL) {
+        print_error(path, line_num, "Error parsing member");
+        return NULL;
     }
+
+    members = push_member(members, member, &num_members);
+    c = peek_next_nonspace(file, line_num);
+    if (c == '}')
+        return members;
+
+    do {
+        c = get_next_nonspace(file, line_num);
+        if (c != ',') {
+            print_error(path, line_num, "Missing comma between members");
+            json_members_destroy(members);
+            return NULL;
+        }
+        member = parse_member(path, file, line_num, error_count);
+        if (member == NULL) {
+            print_error(path, line_num, "Error parsing member");
+            json_members_destroy(members);
+            return NULL;
+        }
+        members = push_member(members, member, &num_members);
+    } while (peek_next_nonspace(file, line_num) != '}');
+
+    qsort(members, num_members, sizeof(JsonMember*), json_member_cmp); 
 
     return members;
 }
 
 static JsonObject* parse_object(const char* path, FILE* file, int* line_num, int* error_count)
 {
+    JsonObject* object;
     char c;
 
-    // find first '{'
     c = get_next_nonspace(file, line_num);
     if (c == EOF) {
         print_error(path, line_num, "Expected '{'");
@@ -308,19 +323,28 @@ static JsonObject* parse_object(const char* path, FILE* file, int* line_num, int
         return NULL;
     }
 
+    c = peek_next_nonspace(file, line_num);
+    if (c == '}') {
+        getch(file, line_num);
+        object = malloc(sizeof(JsonObject));
+        ASSERT(object != NULL);
+        object->members = malloc(sizeof(JsonMember));
+        ASSERT(object->members != NULL);
+        object->members[0] = NULL;
+        return object;
+    }
+
     JsonMember** members = parse_members(path, file, line_num, error_count);
 
     if (members == NULL) {
-        print_error(path, line_num, "Failed to parse members");
+        print_error(path, line_num, "Error parsing objects");
         return NULL;
     }
 
-    // create object to return
-    JsonObject* object = malloc(sizeof(JsonObject));
+    object = malloc(sizeof(JsonObject));
     ASSERT(object != NULL);
     object->members = (const JsonMember**)members;
 
-    // find matching closing '}'
     c = get_next_nonspace(file, line_num);
 
     if (c != '}') {
@@ -427,6 +451,7 @@ const char* negatives[] = {
 const char* positives[] = {
     "test1",
     "test2",
+    "test3",
 };
 
 int main(void)
