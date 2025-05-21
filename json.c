@@ -184,23 +184,41 @@ static JsonValue* parse_value_string(FILE* file, int* line_num)
 
 static JsonValue* parse_value_true(FILE* file, int* line_num)
 {
-    UNUSED(file);
     UNUSED(line_num);
-    return NULL;
+    char str[5];
+    fgets(str, 5, file);
+    str[4] = '\0';
+    if (strcmp(str, "true"))
+        return NULL;
+    JsonValue* value = malloc(sizeof(JsonValue));
+    value->type = JTYPE_TRUE;
+    return value;
 }
 
 static JsonValue* parse_value_false(FILE* file, int* line_num)
 {
-    UNUSED(file);
     UNUSED(line_num);
-    return NULL;
+    char str[6];
+    fgets(str, 6, file);
+    str[5] = '\0';
+    if (strcmp(str, "false"))
+        return NULL;
+    JsonValue* value = malloc(sizeof(JsonValue));
+    value->type = JTYPE_TRUE;
+    return value;
 }
 
 static JsonValue* parse_value_null(FILE* file, int* line_num)
 {
-    UNUSED(file);
     UNUSED(line_num);
-    return NULL;
+    char str[5];
+    fgets(str, 5, file);
+    str[4] = '\0';
+    if (strcmp(str, "null"))
+        return NULL;
+    JsonValue* value = malloc(sizeof(JsonValue));
+    value->type = JTYPE_TRUE;
+    return value;
 }
 
 static JsonValue* parse_value(FILE* file, int* line_num)
@@ -422,6 +440,11 @@ float json_get_float(const JsonObject* object, const char* key)
     return 0;
 }
 
+void json_object_print(JsonObject* object)
+{
+    UNUSED(object);
+}
+
 void json_object_destroy(JsonObject* object)
 {
     UNUSED(object);
@@ -440,6 +463,8 @@ void test(const char* path)
             continue;
         sprintf(str, "%s/%s", path, entry->d_name);
         JsonObject* object = json_read(str);
+        if (object != NULL)
+            json_object_print(object);
         json_object_destroy(object);
         puts("-------------------------");
     }
