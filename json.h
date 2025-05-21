@@ -42,6 +42,4 @@ void json_destroy_array_iterator(JsonArrayIterator* iterator);
 // destroy json object
 void json_destroy(JsonObject* object);
 
-void json_tests(void);
-
 #endif
