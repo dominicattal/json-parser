@@ -11,6 +11,7 @@ typedef enum {
     JTYPE_NULL
 } JsonType;
 
+typedef struct JsonValue JsonValue;
 typedef struct JsonObject JsonObject;
 typedef struct JsonArray JsonArray;
 typedef struct JsonArrayIterator JsonArrayIterator;
@@ -39,7 +40,7 @@ void json_iterator_next(JsonArrayIterator* iterator);
 int  json_iterator_end(JsonArrayIterator* iterator);
 void json_destroy_array_iterator(JsonArrayIterator* iterator);
 
-// destroy json object
-void json_destroy(JsonObject* object);
+// destroy json object. Does nothing if object is NULL
+void json_object_destroy(JsonObject* object);
 
 #endif
