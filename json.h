@@ -25,6 +25,9 @@ int json_key_exists(const JsonObject* object, const char* key);
 // returns JsonType
 JsonType json_get_type(const JsonObject* object);
 
+// print the json object formatted like json
+void json_print_object(const JsonObject* object);
+
 // Gets are undefined for nonexistent keys or values of wrong type
 // call json_key_exists and json_get_type first
 // returns json object at key
