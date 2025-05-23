@@ -264,10 +264,14 @@ static char* get_next_string(FILE* file, int* line_num)
             print_error(line_num, "Invalid escape sequence");
             return NULL;
         }
-        if (c != 'u')
-            continue;
-        for (int i = 0; i < 3; i++)
+        if (c != 'u') continue;
+        for (int i = 0; i < 3; i++) {
             c = getch(file, line_num);
+            if (c == EOF) {
+                print_error(line_num, "Expected hex literal");
+                return NULL;
+            }
+        }
     }
 
     if (c == EOF) {
@@ -455,43 +459,43 @@ static int next_state_number(int state, char c)
             if (c == '-') return 1;
             if (c == '0') return 2;
             if (isdigit(c)) return 3;
-            return -1;
+            break;
         case 1:
             if (c == '0') return 2;
             if (isdigit(c)) return 3;
-            return -1;
+            break;
         case 2:
             if (c == '.') return 4;
             if (c == 'e') return 6;
             if (c == 'E') return 6;
-            return -1;
+            break;
         case 3:
             if (c == '.') return 4;
             if (c == 'e') return 6;
             if (c == 'E') return 6;
             if (isdigit(c)) return 3;
-            return -1;
+            break;
         case 4:
             if (isdigit(c)) return 5;
-            return -1;
+            break;
         case 5:
             if (c == 'e') return 6;
             if (c == 'E') return 6;
             if (isdigit(c)) return 5;
-            return -1;
+            break;
         case 6:
             if (c == '+') return 7;
             if (c == '-') return 7;
             if (isdigit(c)) return 8;
-            return -1;
+            break;
         case 7:
             if (isdigit(c)) return 8;
-            return -1;
+            break;
         case 8:
             if (isdigit(c)) return 8;
-            return -1;
+            break;
         default:
-            return -1;
+            break;
     }
     return -1;
 }
@@ -551,7 +555,6 @@ static JsonValue* parse_value_number(FILE* file, int* line_num)
 
 static JsonValue* parse_value_string(FILE* file, int* line_num)
 {
-
     char* string = get_next_string(file, line_num);
     if (string == NULL) {
         print_error(line_num, "Error parsing value string");
@@ -590,7 +593,7 @@ static JsonValue* parse_value_false(FILE* file, int* line_num)
         return NULL;
     JsonValue* value = malloc(sizeof(JsonValue));
     ASSERT(value != NULL);
-    value->type = JTYPE_TRUE;
+    value->type = JTYPE_FALSE;
     return value;
 }
 
@@ -604,7 +607,7 @@ static JsonValue* parse_value_null(FILE* file, int* line_num)
         return NULL;
     JsonValue* value = malloc(sizeof(JsonValue));
     ASSERT(value != NULL);
-    value->type = JTYPE_TRUE;
+    value->type = JTYPE_NULL;
     return value;
 }
 
