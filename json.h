@@ -15,6 +15,7 @@ typedef enum {
 typedef struct JsonValue JsonValue;
 typedef struct JsonObject JsonObject;
 typedef struct JsonArray JsonArray;
+typedef struct JsonMember JsonMember;
 typedef struct JsonArrayIterator JsonArrayIterator;
 
 // reads json file. returns NULL on error
@@ -31,20 +32,14 @@ void json_print_object(const JsonObject* object);
 
 // Gets are undefined for nonexistent keys or values of wrong type
 // call json_key_exists and json_get_type first
-// returns json object at key
 const JsonObject* json_get(const JsonObject* object, const char* key);
 const JsonArray* json_get_array(const JsonObject* object, const char* key);
 const char* json_get_string(const JsonObject* object, const char* key);
 int json_get_int(const JsonObject* object, const char* key);
 float json_get_float(const JsonObject* object, const char* key);
 
-JsonArrayIterator* json_get_array_iterator(JsonArray* array);
-JsonObject* json_iterator_value(JsonArrayIterator* iterator);
-void json_iterator_next(JsonArrayIterator* iterator);
-int  json_iterator_end(JsonArrayIterator* iterator);
-void json_destroy_array_iterator(JsonArrayIterator* iterator);
-
-// destroy json object. Does nothing if object is NULL
+// destroy does nothing if target is NULL
+// referencing a destroyed target is undefined
 void json_object_destroy(JsonObject* object);
 
 #endif
