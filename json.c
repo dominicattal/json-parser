@@ -16,24 +16,24 @@
 // https://www.json.org/json-en.html
 
 typedef struct JsonMember {
-    const char* key;
+    char* key;
     JsonValue* value;
 } JsonMember;
 
 typedef struct JsonObject {
-    const JsonMember** members;
+    JsonMember** members;
 } JsonObject;
 
 typedef struct JsonArray {
-    const JsonValue** values;
+    JsonValue** values;
 } JsonArray;
 
 typedef struct JsonValue {
     JsonType type;
     union {
-        const JsonObject* val_object;
-        const JsonArray* val_array;
-        const char* val_string;
+        JsonObject* val_object;
+        JsonArray* val_array;
+        char* val_string;
         double val_float;
         long long val_int;
     };
@@ -51,24 +51,70 @@ static JsonObject* parse_object(FILE* file, int* line_num);
 static JsonMember* parse_member(FILE* file, int* line_num);
 static JsonMember** parse_members(FILE* file, int* line_num);
 
+static void json_member_destroy(JsonMember* member);
+static void json_value_destroy(JsonValue* value);
+static void json_members_destroy(JsonMember** members);
+static void json_values_destroy(JsonValue** values);
+static void json_array_destroy(JsonArray* array);
+
+static void json_object_print(const JsonObject* object, int depth);
+static void json_array_print(const JsonArray* array, int depth);
+
+static void json_value_destroy(JsonValue* value)
+{
+    if (value == NULL) return;
+    switch (value->type) {
+        case JTYPE_OBJECT:
+            json_object_destroy(value->val_object);
+            break;
+        case JTYPE_ARRAY:
+            json_array_destroy(value->val_array);
+            break;
+        case JTYPE_STRING:
+            free(value->val_string);
+            break;
+        default:
+            break;
+    }
+    free(value);
+}
+
+static void json_member_destroy(JsonMember* member)
+{
+    if (member == NULL) return;
+    free(member->key);
+    json_value_destroy(member->value);
+    free(member);
+}
+
 static void json_members_destroy(JsonMember** members)
 {
-    UNUSED(members);
+    if (members == NULL) return;
+    for (int i = 0; members[i] != NULL; i++)
+        json_member_destroy(members[i]);
+    free(members);
 }
 
 static void json_values_destroy(JsonValue** values)
 {
-    UNUSED(values);
+    if (values == NULL) return;
+    for (int i = 0; values[i] != NULL; i++)
+        json_value_destroy(values[i]);
+    free(values);
 }
 
 static void json_array_destroy(JsonArray* array)
 {
-    UNUSED(array);
+    if (array == NULL) return;
+    json_values_destroy(array->values);
+    free(array);
 }
 
 void json_object_destroy(JsonObject* object)
 {
-    UNUSED(object);
+    if (object == NULL) return;
+    json_members_destroy(object->members);
+    free(object);
 }
 
 static int json_member_cmp(const void* x, const void* y)
@@ -120,11 +166,16 @@ static void ungetch(FILE* file, int* line_num, char c)
     ungetc(c, file);
 }
 
+static int json_ws(char c)
+{
+    return c == ' ' || c == '\n' || c == '\r' || c == '\t';
+}
+
 static char get_next_nonspace(FILE* file, int* line_num)
 {
     char c;
     do { c = getch(file, line_num);
-    } while (c != EOF && isspace(c));
+    } while (c != EOF && json_ws(c));
     return c;
 }
 
@@ -135,20 +186,13 @@ static char peek_next_nonspace(FILE* file, int* line_num)
     return c;
 }
 
-// get position in file stream of next instance of char 'ch'
-// returns -2 if it reaches end of file
-static long get_next_char_pos(FILE* file, int* line_num, char ch)
-{
-    char c;
-    do { c = getch(file, line_num);
-    } while (c != EOF && c != ch);
-    return (c != EOF) ? ftell(file) : -2;
-}
-
 // gets substring from start_pos until end_pos, returns NULL if not valid
-static const char* get_string_in_range(FILE* file, int* line_num, long start_pos, long end_pos)
+static char* get_string_in_range(FILE* file, int* line_num, long start_pos, long end_pos)
 {
-    fseek(file, start_pos, SEEK_SET);
+    if (fseek(file, start_pos, SEEK_SET) == -1) {
+        print_error(line_num, "Something unexpected happened");
+        return NULL;
+    }
     int n = end_pos - start_pos;
     char* string = malloc((n+1) * sizeof(char));
     ASSERT(string != NULL);
@@ -161,31 +205,121 @@ static const char* get_string_in_range(FILE* file, int* line_num, long start_pos
     return string;
 }
 
+static int to_hex(char c)
+{
+    if (c >= '0' && c <= '9')
+        return c - '0';
+    if (c >= 'a' && c <= 'f')
+        return c - 'a';
+    if (c >= 'A' && c <= 'F')
+        return c - 'A';
+    return -1;
+}
+
+static int is_escape_char(char c)
+{
+    return c == '"' || c == '\\' || c == '/'
+        || c == 'b' || c == 'f' || c == 'n'
+        || c == 'r' || c == 't' || c == 'u';
+}
+
+static char map_escape_sequence(char c)
+{
+    switch (c) {
+        case '"': return '"';
+        case '\\': return '\\';
+        case '/': return '/';
+        case 'b': return '\b';
+        case 'f': return '\f';
+        case 'n': return '\n';
+        case 'r': return '\r';
+        case 't': return '\t';
+        default: break;
+    }
+    return -1;
+}
+
 // gets next string surrounded by quotes, returns NULL if not valid
-static const char* get_next_string(FILE* file, int* line_num)
+static char* get_next_string(FILE* file, int* line_num)
 {
     char c;
-    long start_pos, end_pos;
-
     c = get_next_nonspace(file, line_num);
     if (c != '"') {
         print_error(line_num, "Missing quotes");
         return NULL;
     }
 
-    start_pos = ftell(file);
-    ASSERT(start_pos != -1);
-    end_pos = get_next_char_pos(file, line_num, '"');
-    ASSERT(end_pos != -1);
-    if (end_pos == -2) {
-        print_error(line_num, "Expected closing quotes");
+    long start_pos = ftell(file);
+    int count, hex, dig;
+    count = 0;
+    while (1) {
+        count += 1;
+        c = getch(file, line_num);
+        if (c == '"') break;
+        if (c == EOF) break;
+        if (c != '\\') continue;
+        c = getch(file, line_num);
+        if (c == EOF) break;
+        if (!is_escape_char(c)) {
+            print_error(line_num, "Invalid escape sequence");
+            return NULL;
+        }
+        if (c != 'u')
+            continue;
+        for (int i = 0; i < 3; i++)
+            c = getch(file, line_num);
+    }
+
+    if (c == EOF) {
+        print_error(line_num, "Expected ending quotes for string");
         return NULL;
     }
 
-    const char* string = get_string_in_range(file, line_num, start_pos, end_pos-1);
-    getch(file, line_num);
-    if (string == NULL)
+    char* string = malloc(count * sizeof(char));
+    ASSERT(string != NULL);
+    if (fseek(file, start_pos, SEEK_SET) == -1) {
+        print_error(line_num, "Something unexpected happened");
         return NULL;
+    }
+
+    count = 0;
+    while (1) {
+        c = getch(file, line_num);
+        ASSERT(c != EOF);
+        if (c == '"') break;
+        if (c != '\\') {
+            string[count++] = c;
+            continue;
+        }
+        c = getch(file, line_num);
+        ASSERT(c != EOF);
+        if (c != 'u') {
+            string[count++] = map_escape_sequence(c);
+            continue;
+        }
+        dig = to_hex(c);
+        if (dig == -1) {
+            print_error(line_num, "Invalid hex literal");
+            free(string);
+            return NULL;
+        }
+        hex = dig << 12;
+        for (int i = 2; i >= 0; i--) {
+            c = getch(file, line_num);
+            printf("%d(%c)\n", c, c);
+            ASSERT(c != EOF);
+            dig = to_hex(c);
+            if (dig == -1) {
+                print_error(line_num, "Invalid hex literal");
+                free(string);
+                return NULL;
+            }
+            hex |= dig << (4*i);
+        }
+        string[count++] = hex;
+    }
+
+    string[count] = '\0';
     return string;
 }
 
@@ -277,7 +411,7 @@ static JsonArray* parse_array(FILE* file, int* line_num)
 
     array = malloc(sizeof(JsonArray));
     ASSERT(array != NULL);
-    array->values = (const JsonValue**)values;
+    array->values = values;
 
     c = get_next_nonspace(file, line_num);
 
@@ -314,7 +448,7 @@ static int accepting_state_float(int state)
     return state == 5 || state == 8;
 }
 
-static int next_state(int state, char c)
+static int next_state_number(int state, char c)
 {
     switch (state) {
         case 0:
@@ -364,13 +498,11 @@ static int next_state(int state, char c)
 
 static long dfa_number(FILE* file, int* line_num, JsonType* type)
 {
-    UNUSED(file);
-    UNUSED(line_num);
     int state = 0, prev_state;
     char c;
     while ((c = getch(file, line_num)) != EOF) {
         prev_state = state;
-        state = next_state(state, c);
+        state = next_state_number(state, c);
         if (state == -1) {
             ungetch(file, line_num, c);
             if (accepting_state_int(prev_state)) {
@@ -420,7 +552,7 @@ static JsonValue* parse_value_number(FILE* file, int* line_num)
 static JsonValue* parse_value_string(FILE* file, int* line_num)
 {
 
-    const char* string = get_next_string(file, line_num);
+    char* string = get_next_string(file, line_num);
     if (string == NULL) {
         print_error(line_num, "Error parsing value string");
         return NULL;
@@ -500,8 +632,7 @@ static JsonValue* parse_value(FILE* file, int* line_num)
 static JsonMember* parse_member(FILE* file, int* line_num)
 {
     char c;
-    
-    const char* key = get_next_string(file, line_num);
+    char* key = get_next_string(file, line_num);
     if (key == NULL) {
         print_error(line_num, "Error reading key");
         return NULL;
@@ -605,7 +736,7 @@ static JsonObject* parse_object(FILE* file, int* line_num)
 
     object = malloc(sizeof(JsonObject));
     ASSERT(object != NULL);
-    object->members = (const JsonMember**)members;
+    object->members = members;
 
     c = get_next_nonspace(file, line_num);
 
@@ -695,13 +826,21 @@ float json_get_float(const JsonObject* object, const char* key)
     return 0;
 }
 
-static void json_object_print(const JsonObject* object, int depth);
-static void json_array_print(const JsonArray* array, int depth);
-
 static void tab(int depth)
 {
     for (int j = 0; j < depth; j++)
         printf("  ");
+}
+
+static void print_string(char* string)
+{
+    printf("\"");
+    for (int i = 0; string[i] != '\0'; i++) {
+        if (string[i] == '"')
+            printf("\\");
+        printf("%c", string[i]);
+    }
+    printf("\"");
 }
 
 static void json_value_print(const JsonValue* value, int depth)
@@ -718,7 +857,7 @@ static void json_value_print(const JsonValue* value, int depth)
             printf("null");
             break;
         case JTYPE_STRING:
-            printf("\"%s\"", value->val_string);
+            print_string(value->val_string);
             break;
         case JTYPE_INT:
             printf("%lld", value->val_int);
@@ -797,13 +936,13 @@ void json_print_object(const JsonObject* object)
     puts("");
 }
 
-void test(const char* path)
+static void test(const char* path)
 {
     char str[512];
-    DIR* negatives = opendir(path);
-    assert(negatives != NULL);
+    DIR* tests = opendir(path);
+    assert(tests != NULL);
     struct dirent* entry;
-    while ((entry = readdir(negatives)) != NULL) {
+    while ((entry = readdir(tests)) != NULL) {
         if (!strcmp(entry->d_name, "."))
             continue;
         if (!strcmp(entry->d_name, ".."))
@@ -819,9 +958,9 @@ void test(const char* path)
     }
 }
 
-int main(void)
+int main(int argc, char** argv)
 {
-    test("negatives");
-    //test("positives");
+    if (argc > 1)
+        test(argv[1]);
     return 0;
 }
