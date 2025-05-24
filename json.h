@@ -16,30 +16,33 @@ typedef struct JsonValue JsonValue;
 typedef struct JsonObject JsonObject;
 typedef struct JsonArray JsonArray;
 typedef struct JsonMember JsonMember;
-typedef struct JsonArrayIterator JsonArrayIterator;
 
 // reads json file. returns NULL on error
 JsonObject* json_read(const char* path);
 
-// returns 1 if key exists, 0 otherwise
-int json_key_exists(const JsonObject* object, const char* key);
+// json_get_value returns NULL if key does not exist in object
+JsonValue*  json_get_value(const JsonObject* object, const char* key);
+JsonType    json_get_type(const JsonValue* value);
+JsonObject* json_get_object(const JsonValue* value);
+JsonArray*  json_get_array(const JsonValue* value);
+char*       json_get_string(const JsonValue* value);
+int         json_get_int(const JsonValue* value);
+float       json_get_float(const JsonValue* value);
 
-// returns JsonType
-JsonType json_get_type(const JsonObject* object);
+// returns the number of values in the array. Undefined if array is NULL
+int json_array_length(const JsonArray* array);
 
-// print the json object formatted like json
+// index into array. Undefined if idx is out of 
+// bounds of the array or if array is NULL
+JsonValue* json_array_get(const JsonArray* array, int idx);
+
+// print out json objects, array, and values, formatted like json
 void json_print_object(const JsonObject* object);
+void json_print_array(const JsonArray* array);
+void json_print_value(const JsonValue* value);
 
-// Gets are undefined for nonexistent keys or values of wrong type
-// call json_key_exists and json_get_type first
-const JsonObject* json_get(const JsonObject* object, const char* key);
-const JsonArray* json_get_array(const JsonObject* object, const char* key);
-const char* json_get_string(const JsonObject* object, const char* key);
-int json_get_int(const JsonObject* object, const char* key);
-float json_get_float(const JsonObject* object, const char* key);
-
-// destroy does nothing if target is NULL
-// referencing a destroyed target is undefined
+// only works with json object returned from json_read
+// json_object_destroy does nothing if target is NULL
 void json_object_destroy(JsonObject* object);
 
 #endif

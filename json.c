@@ -1,5 +1,4 @@
 #include "json.h"
-#include <dirent.h>
 #include <assert.h>
 #include <ctype.h>
 #include <stdio.h>
@@ -13,6 +12,17 @@
     #define ASSERT(x) ((void)0)
 #endif
 
+static void print_error(const int* line_num, const char* message)
+{
+#ifdef JSON_VERBOSE
+    printf("[%d]: %s\n", *line_num, message);
+#else
+    UNUSED(line_num);
+    UNUSED(message);
+#endif
+}
+
+
 // https://www.json.org/json-en.html
 
 typedef struct JsonMember {
@@ -22,10 +32,12 @@ typedef struct JsonMember {
 
 typedef struct JsonObject {
     JsonMember** members;
+    int num_members;
 } JsonObject;
 
 typedef struct JsonArray {
     JsonValue** values;
+    int num_values;
 } JsonArray;
 
 typedef struct JsonValue {
@@ -49,13 +61,12 @@ static JsonValue* parse_value_false(FILE* file, int* line_num);
 static JsonValue* parse_value_null(FILE* file, int* line_num);
 static JsonObject* parse_object(FILE* file, int* line_num);
 static JsonMember* parse_member(FILE* file, int* line_num);
-static JsonMember** parse_members(FILE* file, int* line_num);
 
 static void json_member_destroy(JsonMember* member);
 static void json_value_destroy(JsonValue* value);
-static void json_members_destroy(JsonMember** members);
-static void json_values_destroy(JsonValue** values);
 static void json_array_destroy(JsonArray* array);
+static void json_values_destroy(JsonValue** values, int num_values);
+static void json_members_destroy(JsonMember** members, int num_members);
 
 static void json_object_print(const JsonObject* object, int depth);
 static void json_array_print(const JsonArray* array, int depth);
@@ -87,18 +98,16 @@ static void json_member_destroy(JsonMember* member)
     free(member);
 }
 
-static void json_members_destroy(JsonMember** members)
+static void json_members_destroy(JsonMember** members, int num_members)
 {
-    if (members == NULL) return;
-    for (int i = 0; members[i] != NULL; i++)
+    for (int i = 0; i < num_members; i++)
         json_member_destroy(members[i]);
     free(members);
 }
 
-static void json_values_destroy(JsonValue** values)
+static void json_values_destroy(JsonValue** values, int num_values)
 {
-    if (values == NULL) return;
-    for (int i = 0; values[i] != NULL; i++)
+    for (int i = 0; i < num_values; i++)
         json_value_destroy(values[i]);
     free(values);
 }
@@ -106,14 +115,14 @@ static void json_values_destroy(JsonValue** values)
 static void json_array_destroy(JsonArray* array)
 {
     if (array == NULL) return;
-    json_values_destroy(array->values);
+    json_values_destroy(array->values, array->num_values);
     free(array);
 }
 
 void json_object_destroy(JsonObject* object)
 {
     if (object == NULL) return;
-    json_members_destroy(object->members);
+    json_members_destroy(object->members, object->num_members);
     free(object);
 }
 
@@ -127,12 +136,11 @@ static int json_member_cmp(const void* x, const void* y)
 static void* push_data(void** list, void* data, int* length, size_t size)
 {
     if (list == NULL)
-        list = malloc(2 * size);
+        list = malloc(size);
     else
-        list = realloc(list, (*length+2) * size);
+        list = realloc(list, (*length+1) * size);
     ASSERT(list != NULL);
     list[(*length)++] = data;
-    list[(*length)] = NULL;
     return list;
 }
 
@@ -144,11 +152,6 @@ static JsonMember** push_member(JsonMember** members, JsonMember* member, int* l
 static JsonValue** push_value(JsonValue** values, JsonValue* value, int* length)
 {
     return push_data((void**)values, (void*)value, length, sizeof(JsonValue*));
-}
-
-static void print_error(const int* line_num, const char* message)
-{
-    printf("[%d]: %s\n", *line_num, message);
 }
 
 static char getch(FILE* file, int* line_num)
@@ -341,10 +344,9 @@ static JsonValue* parse_value_object(FILE* file, int* line_num)
     return value;
 }
 
-static JsonValue** parse_values(FILE* file, int* line_num)
+static JsonValue** parse_values(FILE* file, int* line_num, int* num_values)
 {
     char c;
-    int num_values = 0;
     JsonValue** values = NULL;
     JsonValue* value;
 
@@ -354,7 +356,7 @@ static JsonValue** parse_values(FILE* file, int* line_num)
         return NULL;
     }
 
-    values = push_value(values, value, &num_values);
+    values = push_value(values, value, num_values);
     c = peek_next_nonspace(file, line_num);
     if (c == ']')
         return values;
@@ -363,16 +365,16 @@ static JsonValue** parse_values(FILE* file, int* line_num)
         c = get_next_nonspace(file, line_num);
         if (c != ',') {
             print_error(line_num, "Missing comma between values");
-            json_values_destroy(values);
+            json_values_destroy(values, *num_values);
             return NULL;
         }
         value = parse_value(file, line_num);
         if (value == NULL) {
             print_error(line_num, "Error parsing value");
-            json_values_destroy(values);
+            json_values_destroy(values, *num_values);
             return NULL;
         }
-        values = push_value(values, value, &num_values);
+        values = push_value(values, value, num_values);
     } while (peek_next_nonspace(file, line_num) != ']');
 
     return values;
@@ -403,10 +405,12 @@ static JsonArray* parse_array(FILE* file, int* line_num)
         array->values = malloc(sizeof(JsonValue));
         ASSERT(array->values != NULL);
         array->values[0] = NULL;
+        array->num_values = 0;
         return array;
     }
  
-    JsonValue** values = parse_values(file, line_num);
+    int num_values = 0;
+    JsonValue** values = parse_values(file, line_num, &num_values);
 
     if (values == NULL) {
         print_error(line_num, "Error parsing array");
@@ -416,6 +420,7 @@ static JsonArray* parse_array(FILE* file, int* line_num)
     array = malloc(sizeof(JsonArray));
     ASSERT(array != NULL);
     array->values = values;
+    array->num_values = num_values;
 
     c = get_next_nonspace(file, line_num);
 
@@ -662,10 +667,9 @@ static JsonMember* parse_member(FILE* file, int* line_num)
     return member;
 }
 
-static JsonMember** parse_members(FILE* file, int* line_num)
+static JsonMember** parse_members(FILE* file, int* line_num, int* num_members)
 {
     char c;
-    int num_members = 0;
     JsonMember** members = NULL;
     JsonMember* member;
 
@@ -675,7 +679,7 @@ static JsonMember** parse_members(FILE* file, int* line_num)
         return NULL;
     }
 
-    members = push_member(members, member, &num_members);
+    members = push_member(members, member, num_members);
     c = peek_next_nonspace(file, line_num);
     if (c == '}')
         return members;
@@ -684,19 +688,19 @@ static JsonMember** parse_members(FILE* file, int* line_num)
         c = get_next_nonspace(file, line_num);
         if (c != ',') {
             print_error(line_num, "Missing comma between members");
-            json_members_destroy(members);
+            json_members_destroy(members, *num_members);
             return NULL;
         }
         member = parse_member(file, line_num);
         if (member == NULL) {
             print_error(line_num, "Error parsing member");
-            json_members_destroy(members);
+            json_members_destroy(members, *num_members);
             return NULL;
         }
-        members = push_member(members, member, &num_members);
+        members = push_member(members, member, num_members);
     } while (peek_next_nonspace(file, line_num) != '}');
 
-    qsort(members, num_members, sizeof(JsonMember*), json_member_cmp); 
+    qsort(members, *num_members, sizeof(JsonMember*), json_member_cmp); 
 
     return members;
 }
@@ -727,10 +731,12 @@ static JsonObject* parse_object(FILE* file, int* line_num)
         object->members = malloc(sizeof(JsonMember));
         ASSERT(object->members != NULL);
         object->members[0] = NULL;
+        object->num_members = 0;
         return object;
     }
 
-    JsonMember** members = parse_members(file, line_num);
+    int num_members = 0;
+    JsonMember** members = parse_members(file, line_num, &num_members);
 
     if (members == NULL) {
         print_error(line_num, "Error parsing object");
@@ -740,6 +746,7 @@ static JsonObject* parse_object(FILE* file, int* line_num)
     object = malloc(sizeof(JsonObject));
     ASSERT(object != NULL);
     object->members = members;
+    object->num_members = num_members;
 
     c = get_next_nonspace(file, line_num);
 
@@ -754,79 +761,84 @@ static JsonObject* parse_object(FILE* file, int* line_num)
 
 JsonObject* json_read(const char* path)
 {
-    printf("Parsing %s\n\n", path);
     FILE* file = fopen(path, "r");
-    if (file == NULL) {
-        printf("Error opening json file: %s\n", path);
-        printf("\nParsing failed\n");
+    if (file == NULL)
         return NULL;
-    }
+
     int line_num = 1;
     JsonObject* object = parse_object(file, &line_num);
     if (object != NULL && get_next_nonspace(file, &line_num) != EOF) {
-        print_error(&line_num, "Excess characters");
+        print_error(&line_num, "Excess characters after root");
         json_object_destroy(object);
         object = NULL;
     }
+
     if (fclose(file) == EOF) {
-        printf("Error reading json file: %s\n", path);
         json_object_destroy(object);
         return NULL;
     }
-    if (object == NULL) {
-        printf("\nParsing failed\n");
-        return NULL;
-    }
-    printf("\nParsing success\n");
+
     return object;
 }
 
-int json_key_exists(const JsonObject* object, const char* key)
+JsonValue* json_get_value(const JsonObject* object, const char* key)
 {
-    UNUSED(object);
-    UNUSED(key);
-    return 0;
-}
-
-JsonType json_get_type(const JsonObject* object)
-{
-    UNUSED(object);
-    return JTYPE_OBJECT;
-}
-
-const JsonObject* json_get(const JsonObject* object, const char* key)
-{
-    UNUSED(object);
-    UNUSED(key);
+    JsonMember* member;
+    int m, l, r, a;
+    l = 0;
+    r = object->num_members - 1;
+    while (l <= r) {
+        m = l + (r - l) / 2;
+        member = object->members[m];
+        a = strcmp(key, member->key);
+        if (a > 0) 
+            l = m + 1;
+        else if (a < 0) 
+            r = m - 1;
+        else 
+            return member->value;
+    }
     return NULL;
 }
 
-const JsonArray* json_get_array(const JsonObject* object, const char* key)
+JsonType json_get_type(const JsonValue* value)
 {
-    UNUSED(object);
-    UNUSED(key);
-    return NULL;
+    return value->type;
 }
 
-const char* json_get_string(const JsonObject* object, const char* key)
+JsonObject* json_get_object(const JsonValue* value)
 {
-    UNUSED(object);
-    UNUSED(key);
-    return NULL;
+    return value->val_object;
 }
 
-int json_get_int(const JsonObject* object, const char* key)
+JsonArray* json_get_array(const JsonValue* value)
 {
-    UNUSED(object);
-    UNUSED(key);
-    return 0;
+    return value->val_array;
 }
 
-float json_get_float(const JsonObject* object, const char* key)
+char* json_get_string(const JsonValue* value)
 {
-    UNUSED(object);
-    UNUSED(key);
-    return 0;
+    return value->val_string;
+}
+
+int json_get_int(const JsonValue* value)
+{
+    return value->val_int;
+}
+
+float json_get_float(const JsonValue* value)
+{
+    return value->val_float;
+}
+
+int json_array_length(const JsonArray* array)
+{
+    return array->num_values;
+}
+
+JsonValue* json_array_get(const JsonArray* array, int idx)
+{
+    return array->values[idx];
 }
 
 static void tab(int depth)
@@ -839,7 +851,7 @@ static void print_string(char* string)
 {
     printf("\"");
     for (int i = 0; string[i] != '\0'; i++) {
-        if (string[i] == '"')
+        if (string[i] == '"' || string[i] == '\\' || string[i] == '/')
             printf("\\");
         printf("%c", string[i]);
     }
@@ -883,19 +895,19 @@ static void json_array_print(const JsonArray* array, int depth)
 {
     ASSERT(array->values != NULL);
     printf("[");
-    if (array->values[0] == NULL) {
+    if (array->num_values == 0) {
         printf("]");
         return;
     }
     printf("\n");
 
-    int i = 0;
     const JsonValue* value;
-    value = array->values[i++];
+    value = array->values[0];
     tab(depth+1);
     json_value_print(value, depth+1);
 
-    while ((value = array->values[i++]) != NULL) {
+    for (int i = 1; i < array->num_values; i++) {
+        value = array->values[i];
         printf(",\n");
         tab(depth+1);
         json_value_print(value, depth+1);
@@ -909,20 +921,20 @@ static void json_object_print(const JsonObject* object, int depth)
 {
     ASSERT(object->members != NULL);
     printf("{");
-    if (object->members[0] == NULL) {
+    if (object->num_members == 0) {
         printf("}");
         return;
     }
     printf("\n");
 
-    int i = 0;
     const JsonMember* member;
-    member = object->members[i++];
+    member = object->members[0];
     tab(depth+1);
     printf("\"%s\": ", member->key);
     json_value_print(member->value, depth+1);
 
-    while ((member = object->members[i++]) != NULL) {
+    for (int i = 1; i < object->num_members; i++) {
+        member = object->members[i];
         printf(",\n");
         tab(depth+1);
         printf("\"%s\": ", member->key);
@@ -939,31 +951,14 @@ void json_print_object(const JsonObject* object)
     puts("");
 }
 
-static void test(const char* path)
+void json_print_array(const JsonArray* array)
 {
-    char str[512];
-    DIR* tests = opendir(path);
-    assert(tests != NULL);
-    struct dirent* entry;
-    while ((entry = readdir(tests)) != NULL) {
-        if (!strcmp(entry->d_name, "."))
-            continue;
-        if (!strcmp(entry->d_name, ".."))
-            continue;
-        sprintf(str, "%s/%s", path, entry->d_name);
-        JsonObject* object = json_read(str);
-        if (object != NULL) {
-            puts("");
-            json_print_object(object);
-        }
-        json_object_destroy(object);
-        puts("-------------------------");
-    }
+    json_array_print(array, 0);
+    puts("");
 }
 
-int main(int argc, char** argv)
+void json_print_value(const JsonValue* value)
 {
-    if (argc > 1)
-        test(argv[1]);
-    return 0;
+    json_value_print(value, 0);
+    puts("");
 }
