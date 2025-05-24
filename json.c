@@ -5,6 +5,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+// https://www.json.org/json-en.html
+
 #define UNUSED(x) (void)(x)
 #ifdef JSON_ASSERTS
     #define ASSERT(x) assert(x)
@@ -21,9 +23,6 @@ static void print_error(const int* line_num, const char* message)
     UNUSED(message);
 #endif
 }
-
-
-// https://www.json.org/json-en.html
 
 typedef struct JsonMember {
     char* key;
@@ -50,6 +49,11 @@ typedef struct JsonValue {
         long long val_int;
     };
 } JsonValue;
+
+typedef struct JsonIterator {
+    const JsonObject* object;
+    int idx;
+} JsonIterator;
 
 static JsonValue* parse_value(FILE* file, int* line_num);
 static JsonValue* parse_value_object(FILE* file, int* line_num);
@@ -213,9 +217,9 @@ static int to_hex(char c)
     if (c >= '0' && c <= '9')
         return c - '0';
     if (c >= 'a' && c <= 'f')
-        return c - 'a';
+        return c - 'a' + 10;
     if (c >= 'A' && c <= 'F')
-        return c - 'A';
+        return c - 'A' + 10;
     return -1;
 }
 
@@ -829,6 +833,42 @@ int json_get_int(const JsonValue* value)
 float json_get_float(const JsonValue* value)
 {
     return value->val_float;
+}
+
+char* json_member_key(const JsonMember* member)
+{
+    return member->key;
+}
+
+JsonValue* json_member_value(const JsonMember* member)
+{
+    return member->value;
+}
+
+JsonIterator* json_iterator_create(const JsonObject* object)
+{
+    JsonIterator* iterator = malloc(sizeof(JsonIterator));
+    ASSERT(iterator != NULL);
+    iterator->object = object;
+    iterator->idx = 0;
+    return iterator;
+}
+
+JsonMember* json_iterator_get(const JsonIterator* iterator)
+{
+    if (iterator->idx >= iterator->object->num_members)
+        return NULL;
+    return iterator->object->members[iterator->idx];
+}
+
+void json_iterator_increment(JsonIterator* iterator)
+{
+    iterator->idx++;
+}
+
+void json_iterator_destroy(JsonIterator* iterator)
+{
+    free(iterator);
 }
 
 int json_array_length(const JsonArray* array)

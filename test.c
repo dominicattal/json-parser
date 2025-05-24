@@ -30,12 +30,14 @@ static void test_dir(const char* path)
 static void test_array(void)
 {
     JsonObject* root_object = json_read("positives/array_val_4.json");
+    assert(root_object != NULL);
     JsonValue* value = json_get_value(root_object, "key1");
     assert(value != NULL);
     assert(json_get_type(value) == JTYPE_ARRAY);
     JsonArray* array = json_get_array(value);
     for (int i = 0; i < json_array_length(array); i++) {
         value = json_array_get(array, i); 
+        assert(value != NULL);
         json_print_value(value);
         if (json_get_type(value) == JTYPE_OBJECT) {
             JsonObject* object = json_get_object(value);
@@ -49,10 +51,28 @@ static void test_array(void)
     json_object_destroy(root_object);
 }
 
+static void test_iterator(void)
+{
+    JsonObject* root_object = json_read("positives/number.json");
+    assert(root_object != NULL);
+    JsonIterator* it = json_iterator_create(root_object);
+    while (json_iterator_get(it) != NULL) {
+        JsonMember* member = json_iterator_get(it);
+        char* key = json_member_key(member);
+        JsonValue* val = json_member_value(member);
+        puts(key);
+        json_print_value(val);
+        json_iterator_increment(it);
+    }
+    json_object_destroy(root_object);
+}
+
 int main(int argc, char** argv)
 {
     if (argc > 1)
         test_dir(argv[1]);
     test_array();
+    puts("");
+    test_iterator();
     return 0;
 }
