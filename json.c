@@ -1,5 +1,4 @@
 #include "json.h"
-#include <assert.h>
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -8,16 +7,11 @@
 // https://www.json.org/json-en.html
 
 #define UNUSED(x) (void)(x)
-#ifdef JSON_ASSERTS
-    #define ASSERT(x) assert(x)
-#else
-    #define ASSERT(x) ((void)0)
-#endif
 
 static void print_error(const int* line_num, const char* message)
 {
 #ifdef JSON_VERBOSE
-    printf("[%d]: %s\n", *line_num, message);
+    fprintf(stderr, "[%d]: %s\n", *line_num, message);
 #else
     UNUSED(line_num);
     UNUSED(message);
@@ -139,13 +133,17 @@ static int json_member_cmp(const void* x, const void* y)
 
 static void* push_data(void** list, void* data, int* length, size_t size)
 {
+    void** new_list;
     if (list == NULL)
-        list = malloc(size);
+        new_list = malloc(size);
     else
-        list = realloc(list, (*length+1) * size);
-    ASSERT(list != NULL);
-    list[(*length)++] = data;
-    return list;
+        new_list = realloc(list, (*length+1) * size);
+    if (new_list == NULL) {
+        free(list);
+        return NULL;
+    }
+    new_list[(*length)++] = data;
+    return new_list;
 }
 
 static JsonMember** push_member(JsonMember** members, JsonMember* member, int* length)
@@ -202,7 +200,10 @@ static char* get_string_in_range(FILE* file, int* line_num, long start_pos, long
     }
     int n = end_pos - start_pos;
     char* string = malloc((n+1) * sizeof(char));
-    ASSERT(string != NULL);
+    if (string == NULL) {
+        print_error(line_num, "Error allocating memory for string");
+        return NULL;
+    }
     if (fgets(string, n+1, file) == NULL) {
         free(string);
         print_error(line_num, "Something went wrong reading from file");
@@ -287,23 +288,36 @@ static char* get_next_string(FILE* file, int* line_num)
     }
 
     char* string = malloc(count * sizeof(char));
-    ASSERT(string != NULL);
+    if (string == NULL) {
+        print_error(line_num, "Error allocating memory for string");
+        return NULL;
+    }
     if (fseek(file, start_pos, SEEK_SET) == -1) {
         print_error(line_num, "Something unexpected happened");
+        free(string);
         return NULL;
     }
 
     count = 0;
     while (1) {
         c = getch(file, line_num);
-        ASSERT(c != EOF);
-        if (c == '"') break;
+        if (c == '"') 
+            break;
+        if (c == EOF) {
+            print_error(line_num, "EOF encountered while parsing string");
+            free(string);
+            return NULL;
+        }
         if (c != '\\') {
             string[count++] = c;
             continue;
         }
         c = getch(file, line_num);
-        ASSERT(c != EOF);
+        if (c == EOF) {
+            print_error(line_num, "EOF encountered while parsing string");
+            free(string);
+            return NULL;
+        }
         if (c != 'u') {
             string[count++] = map_escape_sequence(c);
             continue;
@@ -317,8 +331,11 @@ static char* get_next_string(FILE* file, int* line_num)
         hex = dig << 12;
         for (int i = 2; i >= 0; i--) {
             c = getch(file, line_num);
-            printf("%d(%c)\n", c, c);
-            ASSERT(c != EOF);
+            if (c == EOF) {
+                print_error(line_num, "EOF encountered while parsing string");
+                free(string);
+                return NULL;
+            }
             dig = to_hex(c);
             if (dig == -1) {
                 print_error(line_num, "Invalid hex literal");
@@ -342,7 +359,10 @@ static JsonValue* parse_value_object(FILE* file, int* line_num)
         return NULL;
     }
     JsonValue* value = malloc(sizeof(JsonValue));
-    ASSERT(value != NULL);
+    if (value == NULL) {
+        print_error(line_num, "Error allocating memory for value");
+        return NULL;
+    }
     value->type = JTYPE_OBJECT;
     value->val_object = object;
     return value;
@@ -379,6 +399,10 @@ static JsonValue** parse_values(FILE* file, int* line_num, int* num_values)
             return NULL;
         }
         values = push_value(values, value, num_values);
+        if (values == NULL) {
+            print_error(line_num, "Error allocating memory for values");
+            return NULL;
+        }
     } while (peek_next_nonspace(file, line_num) != ']');
 
     return values;
@@ -405,10 +429,11 @@ static JsonArray* parse_array(FILE* file, int* line_num)
     if (c == ']') {
         getch(file, line_num);
         array = malloc(sizeof(JsonArray));
-        ASSERT(array != NULL);
-        array->values = malloc(sizeof(JsonValue));
-        ASSERT(array->values != NULL);
-        array->values[0] = NULL;
+        if (array == NULL) {
+            print_error(line_num, "Error allocating memory for array");
+            return NULL;
+        }
+        array->values = NULL;
         array->num_values = 0;
         return array;
     }
@@ -422,7 +447,11 @@ static JsonArray* parse_array(FILE* file, int* line_num)
     }
 
     array = malloc(sizeof(JsonArray));
-    ASSERT(array != NULL);
+    if (array == NULL) {
+        print_error(line_num, "Error allocating memory for array");
+        json_values_destroy(values, num_values);
+        return NULL;
+    }
     array->values = values;
     array->num_values = num_values;
 
@@ -445,7 +474,10 @@ static JsonValue* parse_value_array(FILE* file, int* line_num)
         return NULL;
     }
     JsonValue* value = malloc(sizeof(JsonValue));
-    ASSERT(value != NULL);
+    if (value == NULL) {
+        print_error(line_num, "Error allocating memory for value in array");
+        return NULL;
+    }
     value->type = JTYPE_ARRAY;
     value->val_array = array;
     return value;
@@ -537,9 +569,15 @@ static JsonValue* parse_value_number(FILE* file, int* line_num)
     JsonType type;
     long start_pos, end_pos;
     start_pos = ftell(file);
-    ASSERT(start_pos != -1);
+    if (start_pos == -1) {
+        print_error(line_num, "Error reading file");
+        return NULL;
+    }
     end_pos = dfa_number(file, line_num, &type);
-    ASSERT(end_pos != -1);
+    if (end_pos == -1) {
+        print_error(line_num, "Error reading file");
+        return NULL;
+    }
     if (end_pos == -2) {
         print_error(line_num, "Error parsing value num");
         return NULL;
@@ -552,7 +590,10 @@ static JsonValue* parse_value_number(FILE* file, int* line_num)
     double num = atof(string);
 
     JsonValue* value = malloc(sizeof(JsonValue));
-    ASSERT(value != NULL);
+    if (value == NULL) {
+        print_error(line_num, "Error allocating memory for value");
+        return NULL;
+    }
     value->type = type;
     if (type == JTYPE_INT)
         value->val_int = num;
@@ -571,7 +612,10 @@ static JsonValue* parse_value_string(FILE* file, int* line_num)
     }
 
     JsonValue* value = malloc(sizeof(JsonValue));
-    ASSERT(value != NULL);
+    if (value == NULL) {
+        print_error(line_num, "Error allocating memory for value");
+        return NULL;
+    }
     value->type = JTYPE_STRING;
     value->val_string = string;
 
@@ -580,42 +624,57 @@ static JsonValue* parse_value_string(FILE* file, int* line_num)
 
 static JsonValue* parse_value_true(FILE* file, int* line_num)
 {
-    UNUSED(line_num);
     char str[5];
-    fgets(str, 5, file);
+    if (fgets(str, 5, file) == NULL) {
+        print_error(line_num, "Error reading file");
+        return NULL;
+    }
     str[4] = '\0';
     if (strcmp(str, "true"))
         return NULL;
     JsonValue* value = malloc(sizeof(JsonValue));
-    ASSERT(value != NULL);
+    if (value == NULL) {
+        print_error(line_num, "Error allocating memory for value");
+        return NULL;
+    }
     value->type = JTYPE_TRUE;
     return value;
 }
 
 static JsonValue* parse_value_false(FILE* file, int* line_num)
 {
-    UNUSED(line_num);
     char str[6];
-    fgets(str, 6, file);
+    if (fgets(str, 6, file) == NULL) {
+        print_error(line_num, "Error reading file");
+        return NULL;
+    }
     str[5] = '\0';
     if (strcmp(str, "false"))
         return NULL;
     JsonValue* value = malloc(sizeof(JsonValue));
-    ASSERT(value != NULL);
+    if (value == NULL) {
+        print_error(line_num, "Error allocating memory for value");
+        return NULL;
+    }
     value->type = JTYPE_FALSE;
     return value;
 }
 
 static JsonValue* parse_value_null(FILE* file, int* line_num)
 {
-    UNUSED(line_num);
     char str[5];
-    fgets(str, 5, file);
+    if (fgets(str, 5, file) == NULL) {
+        print_error(line_num, "Error reading file");
+        return NULL;
+    }
     str[4] = '\0';
     if (strcmp(str, "null"))
         return NULL;
     JsonValue* value = malloc(sizeof(JsonValue));
-    ASSERT(value != NULL);
+    if (value == NULL) {
+        print_error(line_num, "Error allocating memory for value");
+        return NULL;
+    }
     value->type = JTYPE_NULL;
     return value;
 }
@@ -653,6 +712,7 @@ static JsonMember* parse_member(FILE* file, int* line_num)
     c = get_next_nonspace(file, line_num);
     if (c != ':') {
         print_error(line_num, "Missing colon");
+        free(key);
         return NULL;
     }
 
@@ -660,11 +720,17 @@ static JsonMember* parse_member(FILE* file, int* line_num)
     value = parse_value(file, line_num);
     if (value == NULL) {
         print_error(line_num, "Error reading value");
+        free(key);
         return NULL;
     }
 
     JsonMember* member = malloc(sizeof(JsonMember));
-    ASSERT(member != NULL);
+    if (member == NULL) {
+        print_error(line_num, "Error allocating memory for member");
+        json_value_destroy(value);
+        free(key);
+        return NULL;
+    }
     member->key = key;
     member->value = value;
 
@@ -702,6 +768,10 @@ static JsonMember** parse_members(FILE* file, int* line_num, int* num_members)
             return NULL;
         }
         members = push_member(members, member, num_members);
+        if (members == NULL) {
+            print_error(line_num, "Error allocating memory for members");
+            return NULL;
+        }
     } while (peek_next_nonspace(file, line_num) != '}');
 
     qsort(members, *num_members, sizeof(JsonMember*), json_member_cmp); 
@@ -731,10 +801,11 @@ static JsonObject* parse_object(FILE* file, int* line_num)
     if (c == '}') {
         getch(file, line_num);
         object = malloc(sizeof(JsonObject));
-        ASSERT(object != NULL);
-        object->members = malloc(sizeof(JsonMember));
-        ASSERT(object->members != NULL);
-        object->members[0] = NULL;
+        if (object == NULL) {
+            print_error(line_num, "Error allocating memory for member");
+            return NULL;
+        }
+        object->members = NULL;
         object->num_members = 0;
         return object;
     }
@@ -748,7 +819,11 @@ static JsonObject* parse_object(FILE* file, int* line_num)
     }
 
     object = malloc(sizeof(JsonObject));
-    ASSERT(object != NULL);
+    if (object == NULL) {
+        print_error(line_num, "Error parsing object");
+        json_members_destroy(members, num_members);
+        return NULL;
+    }
     object->members = members;
     object->num_members = num_members;
 
@@ -825,12 +900,12 @@ char* json_get_string(const JsonValue* value)
     return value->val_string;
 }
 
-int json_get_int(const JsonValue* value)
+long long json_get_int(const JsonValue* value)
 {
     return value->val_int;
 }
 
-float json_get_float(const JsonValue* value)
+double json_get_float(const JsonValue* value)
 {
     return value->val_float;
 }
@@ -845,10 +920,18 @@ JsonValue* json_member_value(const JsonMember* member)
     return member->value;
 }
 
+int json_object_length(const JsonObject* object)
+{
+    return object->num_members;
+}
+
 JsonIterator* json_iterator_create(const JsonObject* object)
 {
     JsonIterator* iterator = malloc(sizeof(JsonIterator));
-    ASSERT(iterator != NULL);
+    if (iterator == NULL) {
+        fprintf(stderr, "Failed to allocate memory for iterator");
+        return NULL;
+    }
     iterator->object = object;
     iterator->idx = 0;
     return iterator;
@@ -900,7 +983,6 @@ static void print_string(char* string)
 
 static void json_value_print(const JsonValue* value, int depth)
 {
-    ASSERT(value != NULL);
     switch (value->type) {
         case JTYPE_TRUE:
             printf("true");
@@ -933,7 +1015,6 @@ static void json_value_print(const JsonValue* value, int depth)
 
 static void json_array_print(const JsonArray* array, int depth)
 {
-    ASSERT(array->values != NULL);
     printf("[");
     if (array->num_values == 0) {
         printf("]");
@@ -959,7 +1040,6 @@ static void json_array_print(const JsonArray* array, int depth)
 
 static void json_object_print(const JsonObject* object, int depth)
 {
-    ASSERT(object->members != NULL);
     printf("{");
     if (object->num_members == 0) {
         printf("}");
