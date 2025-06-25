@@ -67,12 +67,22 @@ static void test_iterator(void)
     json_object_destroy(root_object);
 }
 
+static void test_merge(void)
+{
+    JsonObject* object1 = json_read("positives/number.json");
+    JsonObject* object2 = json_read("positives/array_val.json");
+    JsonObject* object3 = json_merge_objects(object1, object2);
+    json_print_object(object3);
+}
+
 int main(int argc, char** argv)
 {
     if (argc > 1)
         test_dir(argv[1]);
     test_array();
-    puts("");
+    puts("------------------------");
     test_iterator();
+    puts("------------------------");
+    test_merge();
     return 0;
 }
