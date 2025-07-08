@@ -578,6 +578,9 @@ static JsonValue* parse_value_number(FILE* file, int* line_num)
     }
 
     const char* string = get_string_in_range(file, line_num, start_pos, end_pos);
+
+    json_free(string);
+
     if (string == NULL)
         return NULL;
 
