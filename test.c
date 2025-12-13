@@ -1,5 +1,6 @@
 #include "json.h"
 #include <stdio.h>
+#include <string.h>
 #include <dirent.h>
 #include <assert.h>
 
@@ -65,6 +66,7 @@ static void test_iterator(void)
         json_iterator_increment(it);
     }
     json_object_destroy(root_object);
+    json_iterator_destroy(it);
 }
 
 static void test_merge(void)
@@ -73,6 +75,8 @@ static void test_merge(void)
     JsonObject* object2 = json_read("positives/array_val.json");
     JsonObject* object3 = json_merge_objects(object1, object2);
     json_print_object(object3);
+    json_object_destroy(object3);
+    //json_object_destroy(object2);
 }
 
 int main(int argc, char** argv)

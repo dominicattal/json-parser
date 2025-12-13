@@ -577,14 +577,13 @@ static JsonValue* parse_value_number(FILE* file, int* line_num)
         return NULL;
     }
 
-    const char* string = get_string_in_range(file, line_num, start_pos, end_pos);
-
-    json_free(string);
+    char* string = get_string_in_range(file, line_num, start_pos, end_pos);
 
     if (string == NULL)
         return NULL;
 
     double num = atof(string);
+    json_free(string);
 
     JsonValue* value = json_malloc(sizeof(JsonValue));
     if (value == NULL) {
@@ -933,6 +932,7 @@ JsonObject* json_merge_objects(JsonObject* object1, JsonObject* object2)
     const char* key1;
     const char* key2;
     int num_members1, num_members2, idx;
+    int cmp;
 
     it1 = json_iterator_create(object1);
     if (it1 == NULL)
@@ -968,7 +968,8 @@ JsonObject* json_merge_objects(JsonObject* object1, JsonObject* object2)
     while (member1 != NULL && member2 != NULL) {
         key1 = json_member_key(member1);
         key2 = json_member_key(member2);
-        if (strcmp(key1, key2) < 0) {
+        cmp = strcmp(key1, key2);
+        if (cmp < 0) {
             object3->members[idx++] = member1;
             json_iterator_increment(it1);
             member1 = json_iterator_get(it1);
@@ -989,8 +990,12 @@ JsonObject* json_merge_objects(JsonObject* object1, JsonObject* object2)
         member2 = json_iterator_get(it2);
     }
 
+    json_free(object1->members);
+    json_free(object2->members);
     json_free(object1);
     json_free(object2);
+    json_iterator_destroy(it1);
+    json_iterator_destroy(it2);
     
     return object3;
 }
