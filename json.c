@@ -33,8 +33,8 @@ struct JsonValue {
         JsonObject* _object;
         JsonArray* _array;
         char* _string;
-        double _float;
-        long long _int;
+        JsonFloat _float;
+        JsonInt _int;
     } val;
 };
 
@@ -44,16 +44,17 @@ struct JsonIterator {
 };
 
 // ---- Some helper functions defined below main api ------
-static JsonValue*  parse_value(FILE* file, int* line_num);
-static JsonValue*  parse_value_object(FILE* file, int* line_num);
-static JsonValue*  parse_value_array(FILE* file, int* line_num);
-static JsonValue*  parse_value_number(FILE* file, int* line_num);
-static JsonValue*  parse_value_string(FILE* file, int* line_num);
-static JsonValue*  parse_value_true(FILE* file, int* line_num);
-static JsonValue*  parse_value_false(FILE* file, int* line_num);
-static JsonValue*  parse_value_null(FILE* file, int* line_num);
-static JsonObject* parse_object(FILE* file, int* line_num);
-static JsonMember* parse_member(FILE* file, int* line_num);
+static JsonValue*   parse_value(FILE* file, int* line_num);
+static JsonValue*   parse_value_object(FILE* file, int* line_num);
+static JsonValue*   parse_value_array(FILE* file, int* line_num);
+static JsonValue*   parse_value_number(FILE* file, int* line_num);
+static JsonValue*   parse_value_string(FILE* file, int* line_num);
+static JsonValue*   parse_value_true(FILE* file, int* line_num);
+static JsonValue*   parse_value_false(FILE* file, int* line_num);
+static JsonValue*   parse_value_null(FILE* file, int* line_num);
+static JsonObject*  parse_object(FILE* file, int* line_num);
+static JsonMember*  parse_member(FILE* file, int* line_num);
+static char         get_next_nonspace(FILE* file, int* line_num);
 
 static void json_members_destroy(JsonMember** members, int num_members);
 static void json_values_destroy(JsonValue** values, int num_values);
@@ -61,8 +62,6 @@ static void json_values_destroy(JsonValue** values, int num_values);
 static void print_object(const JsonObject* object, int depth);
 static void print_value(const JsonValue* value, int depth);
 static void print_array(const JsonArray* array, int depth);
-
-static char get_next_nonspace(FILE* file, int* line_num);
 
 // ------------------- Objects ------------------------
 
@@ -95,7 +94,11 @@ JsonObject* json_read(const char* path)
 
 JsonObject* json_object_create(void)
 {
-    return NULL;
+    JsonObject* object;
+    object = json_malloc(sizeof(JsonObject));
+    object->members = NULL;
+    object->num_members = 0;
+    return object;
 }
 
 JsonObject* json_merge_objects(JsonObject* object1, JsonObject* object2)
@@ -287,18 +290,40 @@ char* json_value_get_string(const JsonValue* value)
     return value->val._string;
 }
 
-long long json_value_get_int(const JsonValue* value)
+JsonInt json_value_get_int(const JsonValue* value)
 {
     return value->val._int;
 }
 
-double json_value_get_float(const JsonValue* value)
+JsonFloat json_value_get_float(const JsonValue* value)
 {
     return value->val._float;
 }
 
 void json_value_update(JsonValue* value, JsonType type, void* data)
 {
+    value->type = type;
+    switch (type) {
+        case JTYPE_OBJECT:
+            value->val._object = *(JsonObject**)data;
+            break;
+        case JTYPE_ARRAY:
+            value->val._array = *(JsonArray**)data;
+            break;
+        case JTYPE_STRING:
+            value->val._string = *(char**)data;
+            break;
+        case JTYPE_FLOAT:
+            value->val._float = *(JsonFloat*)data;
+            break;
+        case JTYPE_INT:
+            value->val._int = *(JsonInt*)data;
+            break;
+        case JTYPE_TRUE:
+        case JTYPE_FALSE:
+        case JTYPE_NULL:
+            break;
+    }
 }
 
 void json_value_destroy(JsonValue* value)

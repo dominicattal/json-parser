@@ -36,7 +36,7 @@ static void test_array(void)
     JsonValue* value;
     JsonArray* array;
     char* string;
-    root_object = json_read("positives/array_val_4.json");
+    root_object = json_read("tests/positives/array_val_4.json");
     assert(root_object != NULL);
     value = json_object_get_value(root_object, "key1");
     assert(value != NULL);
@@ -65,7 +65,7 @@ static void test_iterator(void)
     JsonValue* value;
     JsonIterator* it;
     char* key;
-    root_object = json_read("positives/number.json");
+    root_object = json_read("tests/positives/number.json");
     assert(root_object != NULL);
     it = json_iterator_create(root_object);
     while (json_iterator_get(it) != NULL) {
@@ -82,12 +82,18 @@ static void test_iterator(void)
 
 static void test_merge(void)
 {
-    JsonObject* object1 = json_read("positives/number.json");
-    JsonObject* object2 = json_read("positives/array_val.json");
+    JsonObject* object1 = json_read("tests/positives/number.json");
+    JsonObject* object2 = json_read("tests/positives/array_val.json");
     JsonObject* object3 = json_merge_objects(object1, object2);
     json_object_print(object3);
     json_object_destroy(object3);
-    //json_object_destroy(object2);
+}
+
+static void test_crud(void)
+{
+    JsonObject* object = json_object_create();
+    json_object_print(object);
+    json_object_destroy(object);
 }
 
 int main(int argc, char** argv)
@@ -99,5 +105,7 @@ int main(int argc, char** argv)
     test_iterator();
     puts("------------------------");
     test_merge();
+    puts("------------------------");
+    test_crud();
     return 0;
 }

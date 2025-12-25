@@ -12,11 +12,13 @@ typedef enum {
     JTYPE_NULL
 } JsonType;
 
-typedef struct JsonObject JsonObject;
-typedef struct JsonMember JsonMember;
-typedef struct JsonValue JsonValue;
-typedef struct JsonArray JsonArray;
+typedef struct JsonObject   JsonObject;
+typedef struct JsonMember   JsonMember;
+typedef struct JsonValue    JsonValue;
+typedef struct JsonArray    JsonArray;
 typedef struct JsonIterator JsonIterator;
+typedef long long           JsonInt;
+typedef double              JsonFloat;
 
 /*
 Summary of api, more info below
@@ -46,8 +48,8 @@ JsonType        json_value_get_type(const JsonValue* value);
 JsonObject*     json_value_get_object(const JsonValue* value);
 JsonArray*      json_value_get_array(const JsonValue* value);
 char*           json_value_get_string(const JsonValue* value);
-long long       json_value_get_int(const JsonValue* value);
-double          json_value_get_float(const JsonValue* value);
+JsonInt         json_value_get_int(const JsonValue* value);
+JsonFloat       json_value_get_float(const JsonValue* value);
 void            json_value_update(JsonValue* value, JsonType type, void* data);
 void            json_value_destroy(JsonValue* value);
 void            json_value_print(const JsonValue* value);
