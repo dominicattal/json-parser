@@ -59,6 +59,10 @@ static char         get_next_nonspace(FILE* file, int* line_num);
 static void json_members_destroy(JsonMember** members, int num_members);
 static void json_values_destroy(JsonValue** values, int num_values);
 
+static void*        push_data(void** list, void* data, int* length, size_t size);
+static JsonMember** push_member(JsonMember** members, JsonMember* member, int* length);
+static JsonValue**  push_value(JsonValue** values, JsonValue* value, int* length);
+
 static void print_object(const JsonObject* object, int depth);
 static void print_value(const JsonValue* value, int depth);
 static void print_array(const JsonArray* array, int depth);
@@ -96,6 +100,8 @@ JsonObject* json_object_create(void)
 {
     JsonObject* object;
     object = json_malloc(sizeof(JsonObject));
+    if (object == NULL)
+        return NULL;
     object->members = NULL;
     object->num_members = 0;
     return object;
@@ -206,13 +212,10 @@ JsonValue* json_object_get_value(const JsonObject* object, const char* key)
 
 void json_object_attach(JsonObject* object, JsonMember* member)
 {
+    object->members = push_member(object->members, member, &object->num_members);
 }
 
-void json_object_detach(JsonObject* object, JsonMember* member)
-{
-}
-
-JsonMember* json_object_detach_by_key(JsonObject* object, const char* key)
+JsonMember* json_object_detach(JsonObject* object, const char* key)
 {
     return NULL;
 }
@@ -232,9 +235,16 @@ void json_object_print(const JsonObject* object)
 
 // ------------------ Members -------------------------
 
-JsonMember* json_member_create(const char* key, const JsonValue* value)
+JsonMember* json_member_create(const char* key, JsonValue* value)
 {
-    return NULL;
+    JsonMember* member;
+    int n;
+    n = strlen(key);
+    member = json_malloc(sizeof(JsonMember));
+    member->key = json_malloc((n+1) * sizeof(char));
+    memcpy(member->key, key, (n+1) * sizeof(char));
+    member->value = value;
+    return member;
 }
 
 char* json_member_key(const JsonMember* member)
@@ -265,9 +275,73 @@ void json_member_print(JsonMember* member)
 
 // ------------------- Value ------------------------
 
-JsonValue* json_value_create(JsonType type, void* data)
+JsonValue* json_value_create_null(void)
 {
-    return NULL;
+    JsonValue* value = json_malloc(sizeof(JsonValue));
+    if (value == NULL) return NULL;
+    value->type = JTYPE_NULL;
+    return value;
+}
+
+JsonValue* json_value_create_true(void)
+{
+    JsonValue* value = json_malloc(sizeof(JsonValue));
+    if (value == NULL) return NULL;
+    value->type = JTYPE_TRUE;
+    return value;
+}
+
+JsonValue* json_value_create_false(void)
+{
+    JsonValue* value = json_malloc(sizeof(JsonValue));
+    if (value == NULL) return NULL;
+    value->type = JTYPE_FALSE;
+    return value;
+}
+
+JsonValue* json_value_create_int(JsonInt val)
+{
+    JsonValue* value = json_malloc(sizeof(JsonValue));
+    if (value == NULL) return NULL;
+    value->type = JTYPE_INT;
+    value->val._int = val;
+    return value;
+}
+
+JsonValue* json_value_create_float(JsonFloat val)
+{
+    JsonValue* value = json_malloc(sizeof(JsonValue));
+    if (value == NULL) return NULL;
+    value->type = JTYPE_FLOAT;
+    value->val._float = val;
+    return value;
+}
+
+JsonValue* json_value_create_string(char* val)
+{
+    JsonValue* value = json_malloc(sizeof(JsonValue));
+    if (value == NULL) return NULL;
+    value->type = JTYPE_STRING;
+    value->val._string = val;
+    return value;
+}
+
+JsonValue* json_value_create_object(JsonObject* val)
+{
+    JsonValue* value = json_malloc(sizeof(JsonValue));
+    if (value == NULL) return NULL;
+    value->type = JTYPE_OBJECT;
+    value->val._object = val;
+    return value;
+}
+
+JsonValue* json_value_create_array(JsonArray* val)
+{
+    JsonValue* value = json_malloc(sizeof(JsonValue));
+    if (value == NULL) return NULL;
+    value->type = JTYPE_ARRAY;
+    value->val._array = val;
+    return value;
 }
 
 JsonType json_value_get_type(const JsonValue* value)
@@ -300,32 +374,6 @@ JsonFloat json_value_get_float(const JsonValue* value)
     return value->val._float;
 }
 
-void json_value_update(JsonValue* value, JsonType type, void* data)
-{
-    value->type = type;
-    switch (type) {
-        case JTYPE_OBJECT:
-            value->val._object = *(JsonObject**)data;
-            break;
-        case JTYPE_ARRAY:
-            value->val._array = *(JsonArray**)data;
-            break;
-        case JTYPE_STRING:
-            value->val._string = *(char**)data;
-            break;
-        case JTYPE_FLOAT:
-            value->val._float = *(JsonFloat*)data;
-            break;
-        case JTYPE_INT:
-            value->val._int = *(JsonInt*)data;
-            break;
-        case JTYPE_TRUE:
-        case JTYPE_FALSE:
-        case JTYPE_NULL:
-            break;
-    }
-}
-
 void json_value_destroy(JsonValue* value)
 {
     if (value == NULL) return;
@@ -355,7 +403,10 @@ void json_value_print(const JsonValue* value)
 
 JsonArray* json_array_create(void)
 {
-    return NULL;
+    JsonArray* array = json_malloc(sizeof(JsonArray));
+    array->values = NULL;
+    array->num_values = 0;
+    return array;
 }
 
 int json_array_length(const JsonArray* array)
@@ -370,14 +421,51 @@ JsonValue* json_array_get(const JsonArray* array, int idx)
 
 void json_array_append(JsonArray* array, JsonValue* value)
 {
+    array->values = push_value(array->values, value, &array->num_values);
 }
 
 void json_array_insert(JsonArray* array, int idx, JsonValue* value)
 {
+    JsonValue** new_values;
+    int i;
+    new_values = realloc(array->values,(array->num_values+1) * sizeof(JsonValue*));
+    for (i = array->num_values; i > idx; i--)
+        new_values[i] = new_values[i-1];
+    new_values[idx] = value;
+    array->values = new_values;
+    array->num_values++;
 }
 
 void json_array_insert_fast(JsonArray* array, int idx, JsonValue* value)
 {
+    JsonValue** new_values;
+    new_values = realloc(array->values,(array->num_values+1) * sizeof(JsonValue*));
+    new_values[array->num_values] = new_values[idx];
+    new_values[idx] = value;
+    array->values = new_values;
+    array->num_values++;
+}
+
+void json_array_remove(JsonArray* array, int idx)
+{
+    JsonValue** new_values;
+    int i;
+    json_value_destroy(array->values[idx]);
+    for (i = idx; i < array->num_values-1; i++)
+        array->values[i] = array->values[i+1];
+    new_values = realloc(array->values,(array->num_values-1) * sizeof(JsonValue*));
+    array->values = new_values;
+    array->num_values--;
+}
+
+void json_array_remove_fast(JsonArray* array, int idx)
+{
+    JsonValue** new_values;
+    json_value_destroy(array->values[idx]);
+    array->values[idx] = array->values[array->num_values-1];
+    new_values = realloc(array->values,(array->num_values-1) * sizeof(JsonValue*));
+    array->values = new_values;
+    array->num_values--;
 }
 
 void json_array_destroy(JsonArray* array)

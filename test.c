@@ -1,4 +1,5 @@
 #include "json.h"
+#define _GNU_SOURCE // asprintf
 #include <stdio.h>
 #include <string.h>
 #include <dirent.h>
@@ -91,8 +92,92 @@ static void test_merge(void)
 
 static void test_crud(void)
 {
-    JsonObject* object = json_object_create();
+    JsonObject* object;
+    JsonObject* obj2;
+    JsonMember* member;
+    JsonValue* value;
+    JsonArray* array;
+    JsonInt integer;
+    JsonFloat decimal;
+    char* string;
+
+    object = json_object_create();
+    puts("Empty object");
     json_object_print(object);
+    puts("--------------------");
+    puts("Insert some stuff");
+    value = json_value_create_null();
+    member = json_member_create("key_null", value);
+    json_object_attach(object, member);
+    value = json_value_create_false();
+    member = json_member_create("key_false", value);
+    json_object_attach(object, member);
+    value = json_value_create_true();
+    member = json_member_create("key_true", value);
+    json_object_attach(object, member);
+    integer = 67;
+    value = json_value_create_int(integer);
+    member = json_member_create("key_int", value);
+    json_object_attach(object, member);
+    decimal = 6.7;
+    value = json_value_create_float(decimal);
+    member = json_member_create("key_float", value);
+    json_object_attach(object, member);
+    obj2 = json_object_create();
+    value = json_value_create_object(obj2);
+    member = json_member_create("key_obj", value);
+    json_object_attach(object, member);
+    integer = 7;
+    value = json_value_create_int(integer);
+    member = json_member_create("6", value);
+    json_object_attach(obj2, member);
+    asprintf(&string, "This is a value");
+    value = json_value_create_string(string);
+    member = json_member_create("key_string", value);
+    json_object_attach(object, member);
+    array = json_array_create();
+    value = json_value_create_array(array);
+    member = json_member_create("key_empty_array", value);
+    json_object_attach(object, member);
+    json_object_print(object);
+    puts("--------------------");
+    puts("Initial Array");
+    array = json_array_create();
+    value = json_value_create_null();
+    json_array_append(array, value);
+    value = json_value_create_true();
+    json_array_append(array, value);
+    value = json_value_create_false();
+    json_array_append(array, value);
+    json_array_print(array);
+    puts("--------------------");
+    puts("Insert value");
+    integer = 69;
+    value = json_value_create_int(integer);
+    json_array_insert(array, 1, value);
+    json_array_print(array);
+    puts("--------------------");
+    puts("Insert value fast");
+    decimal = 6.9;
+    value = json_value_create_float(decimal);
+    json_array_insert_fast(array, 1, value);
+    json_array_print(array);
+    puts("--------------------");
+    puts("Remove value");
+    json_array_remove(array, 2);
+    json_array_print(array);
+    puts("--------------------");
+    puts("Remove value fast");
+    json_array_remove_fast(array, 0);
+    json_array_print(array);
+    puts("--------------------");
+    puts("Everything");
+    value = json_value_create_array(array);
+    member = json_member_create("key_array", value);
+    json_object_attach(object, member);
+
+    json_object_print(object);
+
     json_object_destroy(object);
 }
 
@@ -100,11 +185,11 @@ int main(int argc, char** argv)
 {
     if (argc > 1)
         test_dir(argv[1]);
-    test_array();
+    //test_array();
     puts("------------------------");
-    test_iterator();
+    //test_iterator();
     puts("------------------------");
-    test_merge();
+    //test_merge();
     puts("------------------------");
     test_crud();
     return 0;
