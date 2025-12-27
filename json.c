@@ -63,9 +63,9 @@ static void*        push_data(void** list, void* data, int* length, size_t size)
 static JsonMember** push_member(JsonMember** members, JsonMember* member, int* length);
 static JsonValue**  push_value(JsonValue** values, JsonValue* value, int* length);
 
-static void print_object(const JsonObject* object, int depth);
-static void print_value(const JsonValue* value, int depth);
-static void print_array(const JsonArray* array, int depth);
+static void print_object(FILE* fptr, const JsonObject* object, int depth);
+static void print_value(FILE* fptr, const JsonValue* value, int depth);
+static void print_array(FILE* fptr, const JsonArray* array, int depth);
 
 // ------------------- Objects ------------------------
 
@@ -229,8 +229,20 @@ void json_object_destroy(JsonObject* object)
 
 void json_object_print(const JsonObject* object)
 {
-    print_object(object, 0);
+    print_object(stdout, object, 0);
     puts("");
+}
+
+int json_object_write(const JsonObject* object, const char* filename)
+{
+    FILE* fptr;
+    fptr = fopen(filename, "w");
+    if (fptr == NULL)
+        return 1;
+    print_object(fptr, object, 0);
+    fprintf(fptr, "\n");
+    fclose(fptr);
+    return 0;
 }
 
 // ------------------ Members -------------------------
@@ -395,7 +407,7 @@ void json_value_destroy(JsonValue* value)
 
 void json_value_print(const JsonValue* value)
 {
-    print_value(value, 0);
+    print_value(stdout, value, 0);
     puts("");
 }
 
@@ -478,7 +490,7 @@ void json_array_destroy(JsonArray* array)
 
 void json_array_print(const JsonArray* array)
 {
-    print_array(array, 0);
+    print_array(stdout, array, 0);
     puts("");
 }
 
@@ -1273,106 +1285,106 @@ static JsonObject* parse_object(FILE* file, int* line_num)
     return object;
 }
 
-static void tab(int depth)
+static void tab(FILE* fptr, int depth)
 {
     for (int j = 0; j < depth; j++)
-        printf("  ");
+        fprintf(fptr, "  ");
 }
 
-static void print_string(char* string)
+static void print_string(FILE* fptr, char* string)
 {
-    printf("\"");
+    fprintf(fptr, "\"");
     for (int i = 0; string[i] != '\0'; i++) {
         if (string[i] == '"' || string[i] == '\\' || string[i] == '/')
-            printf("\\");
-        printf("%c", string[i]);
+            fprintf(fptr, "\\");
+        fprintf(fptr, "%c", string[i]);
     }
-    printf("\"");
+    fprintf(fptr, "\"");
 }
 
-static void print_value(const JsonValue* value, int depth)
+static void print_value(FILE* fptr, const JsonValue* value, int depth)
 {
     switch (value->type) {
         case JTYPE_TRUE:
-            printf("true");
+            fprintf(fptr, "true");
             break;
         case JTYPE_FALSE:
-            printf("false");
+            fprintf(fptr, "false");
             break;
         case JTYPE_NULL:
-            printf("null");
+            fprintf(fptr, "null");
             break;
         case JTYPE_STRING:
-            print_string(value->val._string);
+            print_string(fptr, value->val._string);
             break;
         case JTYPE_INT:
-            printf("%lld", value->val._int);
+            fprintf(fptr, "%lld", value->val._int);
             break;
         case JTYPE_FLOAT:
-            printf("%f", value->val._float);
+            fprintf(fptr, "%f", value->val._float);
             break;
         case JTYPE_OBJECT:
-            print_object(value->val._object, depth);
+            print_object(fptr, value->val._object, depth);
             break;
         case JTYPE_ARRAY:
-            print_array(value->val._array, depth);
+            print_array(fptr, value->val._array, depth);
             break;
         default:
             break;
     }
 }
 
-static void print_array(const JsonArray* array, int depth)
+static void print_array(FILE* fptr, const JsonArray* array, int depth)
 {
     const JsonValue* value;
 
-    printf("[");
+    fprintf(fptr, "[");
     if (array->num_values == 0) {
-        printf("]");
+        fprintf(fptr, "]");
         return;
     }
-    printf("\n");
+    fprintf(fptr, "\n");
 
     value = array->values[0];
-    tab(depth+1);
-    print_value(value, depth+1);
+    tab(fptr, depth+1);
+    print_value(fptr, value, depth+1);
 
     for (int i = 1; i < array->num_values; i++) {
         value = array->values[i];
-        printf(",\n");
-        tab(depth+1);
-        print_value(value, depth+1);
+        fprintf(fptr, ",\n");
+        tab(fptr, depth+1);
+        print_value(fptr, value, depth+1);
     }
-    printf("\n");
-    tab(depth);
-    printf("]");
+    fprintf(fptr, "\n");
+    tab(fptr, depth);
+    fprintf(fptr, "]");
 }
 
-static void print_object(const JsonObject* object, int depth)
+static void print_object(FILE* fptr, const JsonObject* object, int depth)
 {
     const JsonMember* member;
     
-    printf("{");
+    fprintf(fptr, "{");
     if (object->num_members == 0) {
-        printf("}");
+        fprintf(fptr, "}");
         return;
     }
-    printf("\n");
+    fprintf(fptr, "\n");
 
     member = object->members[0];
-    tab(depth+1);
-    printf("\"%s\": ", member->key);
-    print_value(member->value, depth+1);
+    tab(fptr, depth+1);
+    fprintf(fptr, "\"%s\": ", member->key);
+    print_value(fptr, member->value, depth+1);
 
     for (int i = 1; i < object->num_members; i++) {
         member = object->members[i];
-        printf(",\n");
-        tab(depth+1);
-        printf("\"%s\": ", member->key);
-        print_value(member->value, depth+1);
+        fprintf(fptr, ",\n");
+        tab(fptr, depth+1);
+        fprintf(fptr, "\"%s\": ", member->key);
+        print_value(fptr, member->value, depth+1);
     }
-    printf("\n");
-    tab(depth);
-    printf("}");
+    fprintf(fptr, "\n");
+    tab(fptr, depth);
+    fprintf(fptr, "}");
 }
 

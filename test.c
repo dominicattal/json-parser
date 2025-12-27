@@ -100,6 +100,7 @@ static void test_crud(void)
     JsonInt integer;
     JsonFloat decimal;
     char* string;
+    char* filename;
 
     object = json_object_create();
     puts("Empty object");
@@ -177,6 +178,10 @@ static void test_crud(void)
     json_object_attach(object, member);
 
     json_object_print(object);
+    puts("--------------------");
+    filename = "test.json";
+    printf("Writing to %s\n", filename);
+    json_object_write(object, filename);
 
     json_object_destroy(object);
 }

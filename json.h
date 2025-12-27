@@ -32,6 +32,7 @@ void            json_object_attach(JsonObject* object, JsonMember* member);
 JsonMember*     json_object_detach(JsonObject* object, const char* key);
 void            json_object_destroy(JsonObject* object);
 void            json_object_print(JsonObject* object);
+int             json_object_write(const JsonObject* object, const char* filename);
 
 ----------- Members ------------
 JsonMember*     json_member_create(const char* key, JsonValue* value);
@@ -113,6 +114,9 @@ void            json_object_destroy(JsonObject* object);
 
 // print json object. Undefined if object is NULL.
 void            json_object_print(const JsonObject* object);
+
+// writes json object to file. Returns nonzero on failure, zero on success
+int             json_object_write(const JsonObject* object, const char* filename);
 
 // creates a new json member to add to a json object. A copy of the string key is made, so
 // you are responsible for the original pointer. The member takes control of the value,
