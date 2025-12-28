@@ -71,8 +71,8 @@ static void test_iterator(void)
     it = json_iterator_create(root_object);
     while (json_iterator_get(it) != NULL) {
         member = json_iterator_get(it);
-        key = json_member_key(member);
-        value = json_member_value(member);
+        key = json_member_get_key(member);
+        value = json_member_get_value(member);
         puts(key);
         json_value_print(value);
         json_iterator_increment(it);
@@ -172,11 +172,27 @@ static void test_crud(void)
     json_array_remove_fast(array, 0);
     json_array_print(array);
     puts("--------------------");
-    puts("Everything");
+    puts("So far");
     value = json_value_create_array(array);
     member = json_member_create("key_array", value);
     json_object_attach(object, member);
-
+    json_object_print(object);
+    puts("--------------------");
+    puts("Updated member");
+    member = json_object_get_member(object, "key_int");
+    integer = 69;
+    value = json_value_create_int(integer);
+    json_member_update(member, value);
+    json_object_print(object);
+    puts("--------------------");
+    puts("Detach member");
+    member = json_object_detach(object, "key_array");
+    json_member_print(member);
+    json_member_destroy(member);
+    json_object_print(object);
+    puts("--------------------");
+    puts("Detach and destroy member");
+    json_object_detach_and_destroy(object, "key_null");
     json_object_print(object);
     puts("--------------------");
     filename = "test.json";
@@ -190,11 +206,11 @@ int main(int argc, char** argv)
 {
     if (argc > 1)
         test_dir(argv[1]);
-    //test_array();
+    test_array();
     puts("------------------------");
-    //test_iterator();
+    test_iterator();
     puts("------------------------");
-    //test_merge();
+    test_merge();
     puts("------------------------");
     test_crud();
     return 0;

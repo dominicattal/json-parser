@@ -27,17 +27,19 @@ JsonObject*     json_read(const char* path);
 JsonObject*     json_object_create(void);
 JsonObject*     json_merge_objects(JsonObject* object1, JsonObject* object2);
 int             json_object_length(const JsonObject* object);
+JsonMember*     json_object_get_member(const JsonObject* object, const char* key);
 JsonValue*      json_object_get_value(const JsonObject* object, const char* key);
-void            json_object_attach(JsonObject* object, JsonMember* member);
+int             json_object_attach(JsonObject* object, JsonMember* member);
 JsonMember*     json_object_detach(JsonObject* object, const char* key);
+void            json_object_detach_and_destroy(JsonObject* object, const char* key);
 void            json_object_destroy(JsonObject* object);
 void            json_object_print(JsonObject* object);
 int             json_object_write(const JsonObject* object, const char* filename);
 
 ----------- Members ------------
 JsonMember*     json_member_create(const char* key, JsonValue* value);
-char*           json_member_key(const JsonMember* member);
-JsonValue*      json_member_value(const JsonMember* member);
+char*           json_member_get_key(const JsonMember* member);
+JsonValue*      json_member_get_value(const JsonMember* member);
 void            json_member_update(JsonMember* member, JsonValue* value);
 void            json_member_destroy(JsonMember* member);
 void            json_member_print(JsonMember* member);
@@ -98,15 +100,23 @@ JsonObject*     json_merge_objects(JsonObject* object1, JsonObject* object2);
 // returns the number of members in an object. Undefined if object is NULL
 int             json_object_length(const JsonObject* object);
 
-// json_get_value returns NULL if key does not exist in object. Undefinedd if object is NULL.
+// returns NULL if key does not exist in object. Undefined if object is NULL
+JsonMember*     json_object_get_member(const JsonObject* object, const char* key);
+
+// returns NULL if key does not exist in object. Undefinedd if object is NULL.
 JsonValue*      json_object_get_value(const JsonObject* object, const char* key);
 
 // attach a member to an object. the object owns the member once the member is attached.
-void            json_object_attach(JsonObject* object, JsonMember* member);
+// returns nonzero if member with key already exists in object or if allocation fails
+int             json_object_attach(JsonObject* object, JsonMember* member);
 
 // search for a member in the object based on the given key, detach it, and return it.
 // returns NULL if no member is found with that key.
 JsonMember*     json_object_detach(JsonObject* object, const char* key);
+
+// search for a member in the object, detach it, and destroy it. does nothing if no
+// member is found with that key
+void            json_object_detach_and_destroy(JsonObject* object, const char* key);
 
 // only works with json object returned from json_read
 // or json_merge_objects. json_object_destroy does nothing if target is NULL
@@ -122,12 +132,19 @@ int             json_object_write(const JsonObject* object, const char* filename
 // you are responsible for the original pointer. The member takes control of the value,
 // so you do not need to destroy it.
 JsonMember*     json_member_create(const char* key, JsonValue* value);
+
+// replaces the value in member with value. the old value in member is destroyed.
 void            json_member_update(JsonMember* member, JsonValue* value);
+
+// destroys a member. must not be attached to object, or everything will break.
 void            json_member_destroy(JsonMember* member);
 
+// prints json member
+void            json_member_print(JsonMember* member);
+
 // extract key value pair from member. Undefined if member is NULL
-char*           json_member_key(const JsonMember* member);
-JsonValue*      json_member_value(const JsonMember* member);
+char*           json_member_get_key(const JsonMember* member);
+JsonValue*      json_member_get_value(const JsonMember* member);
 
 // Creates value from data. The memory allocated for data is managed by the JsonValue
 // once you supply it, so you should not free it and instead call json_value_destroy
@@ -170,7 +187,7 @@ void            json_array_insert_fast(JsonArray* array, int idx, JsonValue* val
 // Undefined if idx is out of bounds or if memory fails to reallocate
 void            json_array_remove(JsonArray* array, int idx);
 
-// Removes and destroys the value at idx in O(1) and preserves order
+// Removes and destroys the value at idx in O(1) but doesn't preserves order
 // Undefined if array is NULL, if idx is out of bounds, or if memory fails to reallocate
 void            json_array_remove_fast(JsonArray* array, int idx);
 

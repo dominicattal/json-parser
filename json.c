@@ -56,16 +56,16 @@ static JsonObject*  parse_object(FILE* file, int* line_num);
 static JsonMember*  parse_member(FILE* file, int* line_num);
 static char         get_next_nonspace(FILE* file, int* line_num);
 
-static void json_members_destroy(JsonMember** members, int num_members);
-static void json_values_destroy(JsonValue** values, int num_values);
+static void         json_members_destroy(JsonMember** members, int num_members);
+static void         json_values_destroy(JsonValue** values, int num_values);
 
 static void*        push_data(void** list, void* data, int* length, size_t size);
 static JsonMember** push_member(JsonMember** members, JsonMember* member, int* length);
 static JsonValue**  push_value(JsonValue** values, JsonValue* value, int* length);
 
-static void print_object(FILE* fptr, const JsonObject* object, int depth);
-static void print_value(FILE* fptr, const JsonValue* value, int depth);
-static void print_array(FILE* fptr, const JsonArray* array, int depth);
+static void         print_object(FILE* fptr, const JsonObject* object, int depth);
+static void         print_value(FILE* fptr, const JsonValue* value, int depth);
+static void         print_array(FILE* fptr, const JsonArray* array, int depth);
 
 // ------------------- Objects ------------------------
 
@@ -151,8 +151,8 @@ JsonObject* json_merge_objects(JsonObject* object1, JsonObject* object2)
     member1 = json_iterator_get(it1);
     member2 = json_iterator_get(it2);
     while (member1 != NULL && member2 != NULL) {
-        key1 = json_member_key(member1);
-        key2 = json_member_key(member2);
+        key1 = json_member_get_key(member1);
+        key2 = json_member_get_key(member2);
         cmp = strcmp(key1, key2);
         if (cmp < 0) {
             object3->members[idx++] = member1;
@@ -190,7 +190,7 @@ int json_object_length(const JsonObject* object)
     return object->num_members;
 }
 
-JsonValue* json_object_get_value(const JsonObject* object, const char* key)
+JsonMember* json_object_get_member(const JsonObject* object, const char* key)
 {
     JsonMember* member;
     int m, l, r, a;
@@ -205,19 +205,90 @@ JsonValue* json_object_get_value(const JsonObject* object, const char* key)
         else if (a < 0) 
             r = m - 1;
         else 
-            return member->value;
+            return member;
     }
     return NULL;
 }
 
-void json_object_attach(JsonObject* object, JsonMember* member)
+JsonValue* json_object_get_value(const JsonObject* object, const char* key)
 {
-    object->members = push_member(object->members, member, &object->num_members);
+    JsonMember* member = json_object_get_member(object, key);
+    if (member == NULL) 
+        return NULL;
+    return member->value;
+}
+
+int json_object_attach(JsonObject* object, JsonMember* member)
+{
+    JsonMember** new_members;
+    JsonMember* test_member;
+    int m, l, r, a;
+    l = m = 0;
+    r = object->num_members - 1;
+    while (l <= r) {
+        m = l + (r - l) / 2;
+        test_member = object->members[m];
+        a = strcmp(member->key, test_member->key);
+        if (a > 0) 
+            l = m + 1;
+        else if (a < 0) 
+            r = m - 1;
+        else
+            return 1;
+    }
+    if (object->num_members == 0)
+        new_members = json_malloc(sizeof(JsonMember*));
+    else
+        new_members = json_realloc(object->members, (object->num_members+1)  * sizeof(JsonMember*));
+    if (new_members == NULL)
+        return 2;
+    for (r = object->num_members; r > l; r--)
+        new_members[r] = new_members[r-1];
+    new_members[l] = member;
+    object->members = new_members;
+    object->num_members++;
+    return 0;
 }
 
 JsonMember* json_object_detach(JsonObject* object, const char* key)
 {
+    JsonMember** new_members;
+    JsonMember* member;
+    int m, l, r, a;
+    l = 0;
+    r = object->num_members - 1;
+    while (l <= r) {
+        m = l + (r - l) / 2;
+        member = object->members[m];
+        a = strcmp(key, member->key);
+        if (a > 0) 
+            l = m + 1;
+        else if (a < 0) 
+            r = m - 1;
+        else  {
+            while (m < object->num_members-1) {
+                object->members[m] = object->members[m+1];
+                m++;
+            }
+            if (object->num_members == 1) {
+                json_free(object->members);
+                new_members = NULL;
+            } else {
+                new_members = json_realloc(object->members, (object->num_members-1)  * sizeof(JsonMember*));
+                if (new_members == NULL)
+                    return NULL;
+            }
+            object->members = new_members;
+            object->num_members--;
+            return member;
+        }
+    }
     return NULL;
+}
+
+void json_object_detach_and_destroy(JsonObject* object, const char* key)
+{
+    json_member_destroy(json_object_detach(object, key));
 }
 
 void json_object_destroy(JsonObject* object)
@@ -259,18 +330,20 @@ JsonMember* json_member_create(const char* key, JsonValue* value)
     return member;
 }
 
-char* json_member_key(const JsonMember* member)
+char* json_member_get_key(const JsonMember* member)
 {
     return member->key;
 }
 
-JsonValue* json_member_value(const JsonMember* member)
+JsonValue* json_member_get_value(const JsonMember* member)
 {
     return member->value;
 }
 
 void json_member_update(JsonMember* member, JsonValue* value)
 {
+    json_value_destroy(member->value);
+    member->value = value;
 }
 
 void json_member_destroy(JsonMember* member)
@@ -283,6 +356,8 @@ void json_member_destroy(JsonMember* member)
 
 void json_member_print(JsonMember* member)
 {
+    printf("\"%s\": ", member->key);
+    json_value_print(member->value);
 }
 
 // ------------------- Value ------------------------
@@ -440,7 +515,7 @@ void json_array_insert(JsonArray* array, int idx, JsonValue* value)
 {
     JsonValue** new_values;
     int i;
-    new_values = realloc(array->values,(array->num_values+1) * sizeof(JsonValue*));
+    new_values = json_realloc(array->values,(array->num_values+1) * sizeof(JsonValue*));
     for (i = array->num_values; i > idx; i--)
         new_values[i] = new_values[i-1];
     new_values[idx] = value;
@@ -451,7 +526,7 @@ void json_array_insert(JsonArray* array, int idx, JsonValue* value)
 void json_array_insert_fast(JsonArray* array, int idx, JsonValue* value)
 {
     JsonValue** new_values;
-    new_values = realloc(array->values,(array->num_values+1) * sizeof(JsonValue*));
+    new_values = json_realloc(array->values,(array->num_values+1) * sizeof(JsonValue*));
     new_values[array->num_values] = new_values[idx];
     new_values[idx] = value;
     array->values = new_values;
@@ -465,7 +540,7 @@ void json_array_remove(JsonArray* array, int idx)
     json_value_destroy(array->values[idx]);
     for (i = idx; i < array->num_values-1; i++)
         array->values[i] = array->values[i+1];
-    new_values = realloc(array->values,(array->num_values-1) * sizeof(JsonValue*));
+    new_values = json_realloc(array->values,(array->num_values-1) * sizeof(JsonValue*));
     array->values = new_values;
     array->num_values--;
 }
@@ -475,7 +550,7 @@ void json_array_remove_fast(JsonArray* array, int idx)
     JsonValue** new_values;
     json_value_destroy(array->values[idx]);
     array->values[idx] = array->values[array->num_values-1];
-    new_values = realloc(array->values,(array->num_values-1) * sizeof(JsonValue*));
+    new_values = json_realloc(array->values,(array->num_values-1) * sizeof(JsonValue*));
     array->values = new_values;
     array->num_values--;
 }
