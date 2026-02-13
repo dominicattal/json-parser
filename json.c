@@ -75,7 +75,7 @@ JsonObject* json_read(const char* path)
     int line_num;
     JsonObject* object;
 
-    file = fopen(path, "r");
+    file = fopen(path, "rb");
     if (file == NULL)
         return NULL;
 
